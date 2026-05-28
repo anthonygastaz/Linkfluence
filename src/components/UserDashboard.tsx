@@ -64,6 +64,8 @@ interface KYCData {
   documentNumber: string;
   country: string;
   submittedAt?: string;
+  uploadedFileName?: string;
+  uploadedFileBase64?: string;
 }
 
 interface UserDashboardProps {
@@ -295,6 +297,7 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
   const [kycDocType, setKycDocType] = useState('Nationwide Identity Card');
   const [kycSubmittedFile, setKycSubmittedFile] = useState(false);
   const [kycFileName, setKycFileName] = useState('');
+  const [kycFileBase64, setKycFileBase64] = useState('');
   const [kycLoading, setKycLoading] = useState(false);
   const kycFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -312,25 +315,14 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
         documentType: kycDocType,
         documentNumber: kycDocNum,
         country: user.country,
-        submittedAt: new Date().toISOString().replace('T', ' ').substring(0, 16)
+        submittedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
+        uploadedFileName: kycSubmittedFile ? kycFileName : undefined,
+        uploadedFileBase64: kycSubmittedFile ? kycFileBase64 : undefined,
       };
       setKyc(nextKyc);
       setKycLoading(false);
       triggerToast("KYC Application submitted! Status set to 'Pending Review'.");
       
-      // Auto approve after 12 seconds to show dynamic progress
-      setTimeout(() => {
-        setKyc(prev => {
-          if (prev.status === 'Pending') {
-            const approved = { ...prev, status: 'Approved' as const };
-            saveState(balance, totalProfit, totalWithdrawals, totalInvestments, activePlans, approved, transactions);
-            return approved;
-          }
-          return prev;
-        });
-        triggerToast("KYC Document verified! Account fully cleared for high volume transactions!");
-      }, 12000);
-
       saveState(balance, totalProfit, totalWithdrawals, totalInvestments, activePlans, nextKyc, transactions);
     }, 1500);
   };
@@ -402,20 +394,18 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
         methodOrPlan: actualMethodLabel,
         destinationOrDetail: matchedGateway ? (matchedGateway.address || 'Routing Terminal') : 'Proxy Address',
         date: new Date().toISOString().replace('T', ' ').substring(0, 16),
-        status: 'Completed',
+        status: 'Pending',
         reference: txRef
       };
 
-      const nextBalance = parseFloat((balance + amountNum).toFixed(2));
       const nextTxList = [newTx, ...transactions];
 
-      setBalance(nextBalance);
       setTransactions(nextTxList);
       setDepositSimulating(false);
       setDepositAmt('250');
-      triggerToast(`Successful deposit! Paid $${amountNum} seamlessly.`);
+      triggerToast(`Deposit of $${amountNum} initiated! Awaiting operator validation.`);
 
-      saveState(nextBalance, totalProfit, totalWithdrawals, totalInvestments, activePlans, kyc, nextTxList);
+      saveState(balance, totalProfit, totalWithdrawals, totalInvestments, activePlans, kyc, nextTxList);
       setActiveTab('home');
     }, 2500);
   };
@@ -872,7 +862,23 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
                 </div>
               </div>
 
-              {/* Metric 2: Total Profit */}
+              {/* Metric 2: Total deposits */}
+              <div className="bg-white border border-gray-100/45 p-5 rounded-2xl shadow-xs flex flex-col justify-between">
+                <div className="flex items-center justify-between text-gray-400">
+                  <span className="text-xs font-semibold font-sans tracking-wide uppercase">Total deposits</span>
+                  <div className="p-1.5 bg-indigo-50 text-indigo-500 rounded-lg"><Layers size={16} /></div>
+                </div>
+                <div className="mt-4">
+                  <span className="text-xl sm:text-2xl font-black text-slate-800 font-sans leading-none tracking-tight">
+                    ${totalInvestments.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-[10px] text-indigo-500 font-semibold block font-sans mt-1">
+                    {activePlans.length} active allocation chains
+                  </span>
+                </div>
+              </div>
+
+              {/* Metric 3: Total Profit */}
               <div className="bg-white border border-gray-100/45 p-5 rounded-2xl shadow-xs flex flex-col justify-between">
                 <div className="flex items-center justify-between text-gray-400">
                   <span className="text-xs font-semibold font-sans tracking-wide uppercase">Total Profit</span>
@@ -883,22 +889,6 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
                     +${totalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
                   </span>
                   <span className="text-[10px] text-gray-400 block font-mono mt-1">Real-time passive yield streams</span>
-                </div>
-              </div>
-
-              {/* Metric 3: Total Investments */}
-              <div className="bg-white border border-gray-100/45 p-5 rounded-2xl shadow-xs flex flex-col justify-between">
-                <div className="flex items-center justify-between text-gray-400">
-                  <span className="text-xs font-semibold font-sans tracking-wide uppercase">Total Investments</span>
-                  <div className="p-1.5 bg-indigo-50 text-indigo-500 rounded-lg"><Layers size={16} /></div>
-                </div>
-                <div className="mt-4">
-                  <span className="text-xl sm:text-2xl font-black text-slate-800 font-sans leading-none tracking-tight">
-                    ${totalInvestments.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                  <span className="text-[10px] text-indigo-500 font-semibold block font-sans mt-1">
-                    {activePlans.length} active allocation chains
-                  </span>
                 </div>
               </div>
 
@@ -994,6 +984,13 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
                               if (file) {
                                 setKycSubmittedFile(true);
                                 setKycFileName(file.name);
+                                const r = new FileReader();
+                                r.onloadend = () => {
+                                  if (typeof r.result === 'string') {
+                                    setKycFileBase64(r.result);
+                                  }
+                                };
+                                r.readAsDataURL(file);
                                 triggerToast(`Picture "${file.name}" uploaded successfully!`);
                               }
                             }}

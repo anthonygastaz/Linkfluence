@@ -13,6 +13,8 @@ import {
   Activity,
   Award,
   ArrowRight,
+  ArrowDownLeft,
+  User,
   Lock,
   Plus,
   Edit2,
@@ -46,6 +48,8 @@ interface KYCData {
   documentNumber: string;
   country: string;
   submittedAt?: string;
+  uploadedFileName?: string;
+  uploadedFileBase64?: string;
 }
 
 interface Transaction {
@@ -90,7 +94,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Active admin tab selection
-  const [activeTab, setActiveTab] = useState<'users' | 'kyc' | 'withdrawals' | 'plans' | 'payment-methods' | 'email-portal' | 'system-logs'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'kyc' | 'deposits' | 'withdrawals' | 'plans' | 'payment-methods' | 'email-portal' | 'system-logs'>('users');
 
   // Unified State Stores (seeded with standard users if empty)
   const [roster, setRoster] = useState<string[]>([]);
@@ -114,7 +118,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   const [isAdjustingFunds, setIsAdjustingFunds] = useState(false);
   const [fundAdjustmentUserEmail, setFundAdjustmentUserEmail] = useState('');
   const [adjustmentType, setAdjustmentType] = useState<'credit' | 'debit'>('credit');
-  const [adjustmentTarget, setAdjustmentTarget] = useState<'balance' | 'profit'>('balance');
+  const [adjustmentTarget, setAdjustmentTarget] = useState<'balance' | 'profit' | 'deposits'>('balance');
   const [adjustmentAmount, setAdjustmentAmount] = useState('');
   const [adjustmentNote, setAdjustmentNote] = useState('');
 
@@ -554,16 +558,33 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     
     let nextBalance = raw.balance;
     let nextProfit = raw.totalProfit;
+    let nextInvestments = raw.totalInvestments || 0;
     const isCredit = adjustmentType === 'credit';
-    const tag = adjustmentTarget === 'balance' ? 'Main Account Balance' : 'Accumulated Dividends';
+
+    let tag = 'Main Account Balance';
+    if (adjustmentTarget === 'profit') {
+      tag = 'Accumulated Dividends';
+    } else if (adjustmentTarget === 'deposits') {
+      tag = 'Total deposits';
+    }
 
     if (adjustmentTarget === 'balance') {
       nextBalance = isCredit ? (raw.balance + amountNum) : (raw.balance - amountNum);
-    } else {
+    } else if (adjustmentTarget === 'profit') {
       nextProfit = isCredit ? (raw.totalProfit + amountNum) : (raw.totalProfit - amountNum);
+      if (isCredit) {
+        // "6. all credit to profits should also add to account balance"
+        nextBalance = raw.balance + amountNum;
+      }
+    } else if (adjustmentTarget === 'deposits') {
+      nextInvestments = isCredit ? (nextInvestments + amountNum) : (nextInvestments - amountNum);
+      if (isCredit) {
+        // "5. all credit to total deposits should also add to account balance"
+        nextBalance = raw.balance + amountNum;
+      }
     }
 
-    if (nextBalance < 0 || nextProfit < 0) {
+    if (nextBalance < 0 || nextProfit < 0 || nextInvestments < 0) {
       triggerToast("Negative allocation overflow blocked. Account levels cannot fall below zero.");
       return;
     }
@@ -581,14 +602,15 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
     const updatedRecord = {
       ...raw,
-      balance: nextBalance,
-      totalProfit: nextProfit,
+      balance: parseFloat(nextBalance.toFixed(2)),
+      totalProfit: parseFloat(nextProfit.toFixed(6)),
+      totalInvestments: parseFloat(nextInvestments.toFixed(2)),
       transactions: [adjustmentTx, ...raw.transactions]
     };
 
     saveUserRecord(fundAdjustmentUserEmail, updatedRecord);
     triggerToast(`Financial adjustment executed! Account updated.`);
-    addLog(`Manually ${isCredit ? 'credited' : 'debited'} ${fundAdjustmentUserEmail} $${amountNum} in ${adjustmentTarget}. Note: ${adjustmentNote}`, 'success');
+    addLog(`Manually ${isCredit ? 'credited' : 'debited'} ${fundAdjustmentUserEmail} $${amountNum} in ${tag}. Note: ${adjustmentNote}`, 'success');
     
     setIsAdjustingFunds(false);
   };
@@ -811,6 +833,71 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     loadRosterAndConfig();
   };
 
+  // Action 7.5: Approve / Deny Deposit Requests
+  const getPendingDeposits = () => {
+    const list: Array<{userEmail: string, userName: string, tx: Transaction}> = [];
+    roster.forEach(email => {
+      const records = getUserRecord(email);
+      records.transactions.forEach((tx: Transaction) => {
+        if (tx.type === 'deposit' && tx.status === 'Pending') {
+          list.push({
+            userEmail: email,
+            userName: records.name,
+            tx: tx
+          });
+        }
+      });
+    });
+    return list;
+  };
+
+  const handleApproveDeposit = (userEmail: string, txId: string, amount: number) => {
+    const raw = getUserRecord(userEmail);
+    const updatedTxList = raw.transactions.map((tx: Transaction) => {
+      if (tx.id === txId) {
+        return { ...tx, status: 'Completed' as const };
+      }
+      return tx;
+    });
+
+    const nextBalance = parseFloat((raw.balance + amount).toFixed(2));
+    const nextInvestments = parseFloat(((raw.totalInvestments || 0) + amount).toFixed(2));
+
+    const updated = {
+      ...raw,
+      balance: nextBalance,
+      totalInvestments: nextInvestments,
+      transactions: updatedTxList
+    };
+
+    saveUserRecord(userEmail, updated);
+    triggerToast(`Deposit of $${amount} approved & account credited.`);
+    addLog(`Operator approved deposit request of $${amount} for ${userEmail}. Balance & deposits credited.`, 'success');
+    
+    loadRosterAndConfig();
+  };
+
+  const handleDenyDeposit = (userEmail: string, txId: string, amount: number) => {
+    const raw = getUserRecord(userEmail);
+    const updatedTxList = raw.transactions.map((tx: Transaction) => {
+      if (tx.id === txId) {
+        return { ...tx, status: 'Failed' as const };
+      }
+      return tx;
+    });
+
+    const updated = {
+      ...raw,
+      transactions: updatedTxList
+    };
+
+    saveUserRecord(userEmail, updated);
+    triggerToast(`Deposit request of $${amount} declined.`);
+    addLog(`Operator rejected deposit request of $${amount} for ${userEmail}.`, 'warn');
+    
+    loadRosterAndConfig();
+  };
+
   // Action 8: SMTP Email Dispatch Simulation
   const handleTransmitSimulationEmail = (e: React.FormEvent) => {
     e.preventDefault();
@@ -966,6 +1053,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   // Count queues
   const pendingKYCCount = roster.map(e => getUserRecord(e)).filter(r => r.kyc.status === 'Pending').length;
   const pendingWithdrawalsList = getPendingWithdrawals();
+  const pendingDepositsList = getPendingDeposits();
 
   return (
     <div className="flex flex-col gap-6 text-left font-sans min-h-[650px] animate-[fadeIn_0.2s_ease-out]">
@@ -1063,6 +1151,23 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
             <button
               type="button"
+              onClick={() => { setActiveTab('deposits'); loadRosterAndConfig(); }}
+              className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
+                activeTab === 'deposits' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+              }`}
+            >
+              <span className="flex items-center gap-2"><ArrowDownLeft size={14} /> Deposits Queue</span>
+              {pendingDepositsList.length > 0 ? (
+                <span className="bg-[#E6F7F0] text-[#3CB371] px-1.5 py-0.5 rounded-full text-[9px] font-extrabold animate-pulse">
+                  {pendingDepositsList.length}
+                </span>
+              ) : (
+                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-medium ${activeTab === 'deposits' ? 'bg-white/15' : 'bg-gray-100'}`}>0</span>
+              )}
+            </button>
+
+            <button
+              type="button"
               onClick={() => { setActiveTab('plans'); loadRosterAndConfig(); }}
               className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
                 activeTab === 'plans' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
@@ -1123,10 +1228,10 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
               <div className="flex justify-between items-center text-xs mt-1">
                 <span className="text-gray-500 font-sans">Pending Actions Queue</span>
-                <span className="font-mono font-bold text-rose-500">{pendingKYCCount + pendingWithdrawalsList.length} Tasks</span>
+                <span className="font-mono font-bold text-rose-500">{pendingKYCCount + pendingWithdrawalsList.length + pendingDepositsList.length} Tasks</span>
               </div>
               <div className="w-full bg-gray-100 h-1 rounded-full overflow-hidden">
-                <div className="bg-rose-500 h-full rounded-full" style={{ width: `${Math.min(100, ((pendingKYCCount + pendingWithdrawalsList.length) / 5) * 100)}%` }}></div>
+                <div className="bg-rose-500 h-full rounded-full" style={{ width: `${Math.min(100, ((pendingKYCCount + pendingWithdrawalsList.length + pendingDepositsList.length) / 5) * 100)}%` }}></div>
               </div>
             </div>
 
@@ -1310,6 +1415,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                     <select className="border border-stone-800 rounded-lg p-2.5 bg-stone-900 text-white text-xs" value={adjustmentTarget} onChange={e=>setAdjustmentTarget(e.target.value as any)}>
                       <option value="balance">Main Wallet balance</option>
                       <option value="profit">Yield Profits wallet</option>
+                      <option value="deposits">Total deposits</option>
                     </select>
                   </div>
 
@@ -1340,6 +1446,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                   <th className="py-4 px-4.5">Partner Profile</th>
                   <th className="py-4 px-4.5">Geo Location</th>
                   <th className="py-4 px-4">Account Available Balance</th>
+                  <th className="py-4 px-4">Total deposits</th>
                   <th className="py-4 px-4">Yield Profits Balance</th>
                   <th className="py-4 px-4">Verification ID Status</th>
                   <th className="py-4 px-4.5 text-right">Administrative Action</th>
@@ -1365,6 +1472,9 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                       </td>
                       <td className="py-4.5 px-4 font-mono">
                         <span className="text-sm font-extrabold text-[#111111]">${u.balance.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                      </td>
+                      <td className="py-4.5 px-4 font-mono">
+                        <span className="text-sm font-semibold text-[#111111]">${(u.totalInvestments || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
                       </td>
                       <td className="py-4.5 px-4 font-mono">
                         <span className="text-sm font-extrabold text-emerald-500">${u.totalProfit.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
@@ -1440,9 +1550,39 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                         <span className="text-gray-400">Claimed Country:</span> <strong className="text-gray-700">{r.kyc.country}</strong>
                         <span className="text-gray-400">Dispatch Date:</span> <strong className="text-gray-400 font-mono">{r.kyc.submittedAt || '2026-05-28 02:10'}</strong>
                       </div>
-                      <div className="mt-3 p-2 bg-indigo-50/50 border border-indigo-100/30 text-indigo-700 text-[10px] rounded-lg leading-tight font-mono">
-                        📁 Mock Vetting Verification Image Attachment: <span className="underline font-bold cursor-pointer hover:text-indigo-900">verified_id_scan_highres.jpg (745kb)</span>
-                      </div>
+                      {r.kyc.uploadedFileBase64 ? (
+                        <div className="mt-3 text-indigo-750 font-mono text-[10px] flex flex-col gap-1 text-left">
+                          <span className="font-bold flex items-center gap-1">📁 Attached ID Document: <span className="underline select-all text-indigo-900">{r.kyc.uploadedFileName || 'id_proof.jpg'}</span></span>
+                          <div className="mt-1 border border-indigo-150 rounded-xl overflow-hidden max-w-sm bg-white p-1 shadow-sm">
+                            <img 
+                              src={r.kyc.uploadedFileBase64} 
+                              alt="KYC Passport document upload" 
+                              className="max-h-56 w-auto rounded object-contain cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition duration-150"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-3 p-2.5 bg-indigo-50/50 border border-indigo-100/30 text-indigo-750 text-[10px] rounded-lg leading-tight font-mono text-left">
+                          <span className="block font-bold">📁 Simulated Passport / ID Scan:</span>
+                          <div className="mt-1.5 border border-indigo-100 rounded-lg p-2.5 bg-white flex flex-col gap-1 w-full max-w-xs text-stone-850">
+                            <div className="flex justify-between border-b pb-1 font-sans text-[8.5px] uppercase font-bold tracking-wider text-indigo-600">
+                              <span>International Passport</span>
+                              <span>Cleared Vetting</span>
+                            </div>
+                            <div className="flex gap-2.5 mt-1.5 font-sans">
+                              <div className="w-12 h-16 bg-gray-100 border border-gray-200 rounded flex items-center justify-center shrink-0">
+                                <User size={22} className="text-gray-400" />
+                              </div>
+                              <div className="flex flex-col text-[10px] text-left">
+                                <span className="truncate max-w-[130px]">Name: <strong className="text-black font-extrabold">{r.name}</strong></span>
+                                <span>No: <strong className="text-black font-mono font-bold">{r.kyc.documentNumber || 'US-90821A'}</strong></span>
+                                <span>Country: <strong className="text-black">{r.kyc.country || 'United States'}</strong></span>
+                              </div>
+                            </div>
+                          </div>
+                          <span className="mt-1 pb-0.5 bg-yellow-50 text-yellow-700 text-[9px] px-1 rounded border border-yellow-105 inline-block">Generating secure sandbox attachment</span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-1.5 sm:self-center shrink-0 border-t sm:border-0 pt-3 sm:pt-0 w-full sm:w-auto">
@@ -1462,6 +1602,57 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                   </div>
                 );
               })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* SEC 2.5: DEPOSITS REQUESTS VETTING INTERFACE */}
+      {activeTab === 'deposits' && (
+        <div className="bg-white border border-gray-100 p-5 rounded-2xl flex flex-col gap-4 shadow-xs animate-[fadeIn_0.15s_ease-out]">
+          <div>
+            <h4 className="text-sm font-bold text-black uppercase tracking-wider font-mono">Deposits Verification desk</h4>
+            <p className="text-gray-400 text-xs mt-0.5">Approve or deny incoming deposit slips submitted by users. Approved deposits will credit both the account available balance & total deposits metric.</p>
+          </div>
+
+          <div className="flex flex-col gap-3.5">
+            {pendingDepositsList.length === 0 ? (
+              <div className="p-8 text-center text-gray-400 text-xs border border-dashed border-gray-150 rounded-xl bg-gray-50/20">
+                ⭐ No pending deposit requests awaiting approval.
+              </div>
+            ) : (
+              pendingDepositsList.map(({userEmail, userName, tx}) => (
+                <div key={tx.id} className="p-4 bg-gray-50 border border-gray-150 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 text-xs font-sans text-left">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-extrabold text-black text-sm">{userName}</span>
+                      <span className="text-[10px] font-mono text-gray-450">({userEmail})</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[11px] mt-2">
+                      <span className="text-gray-400">Transaction Reference:</span> <strong className="text-gray-700 font-mono text-xs">{tx.reference}</strong>
+                      <span className="text-gray-400">Payment Channel:</span> <strong className="text-gray-700">{tx.methodOrPlan || 'Direct Cryptocurrency'}</strong>
+                      <span className="text-gray-400">Deposit Amount:</span> <strong className="text-emerald-600 font-bold font-mono">${tx.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</strong>
+                      <span className="text-gray-400">Recipient Target Address:</span> <span className="text-[#3CB371] font-semibold break-all leading-tight max-w-[170px] font-mono text-[10px]">{tx.destinationOrDetail}</span>
+                      <span className="text-gray-400">Request Date:</span> <strong className="text-gray-405 font-mono">{tx.date}</strong>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 sm:self-center shrink-0 border-t sm:border-0 pt-3 sm:pt-0 w-full sm:w-auto">
+                    <button
+                      onClick={() => handleDenyDeposit(userEmail, tx.id, tx.amount)}
+                      className="flex-1 sm:flex-none uppercase text-[10.5px] font-mono font-extrabold bg-rose-50 hover:bg-rose-100 text-rose-500 border border-rose-100 py-2.5 px-3.5 rounded-lg transition shrink-0 cursor-pointer"
+                    >
+                      Reject Deposit
+                    </button>
+                    <button
+                      onClick={() => handleApproveDeposit(userEmail, tx.id, tx.amount)}
+                      className="flex-1 sm:flex-none uppercase text-[10.5px] font-mono font-extrabold bg-[#3CB371] hover:bg-[#2E8B57] text-white py-2.5 px-3.5 rounded-lg transition flex items-center justify-center gap-1 shadow-sm shrink-0 cursor-pointer"
+                    >
+                      <CheckCircle size={13} /> Approve Credit
+                    </button>
+                  </div>
+                </div>
+              ))
             )}
           </div>
         </div>
