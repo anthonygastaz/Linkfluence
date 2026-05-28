@@ -106,9 +106,9 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   const [formEmail, setFormEmail] = useState('');
   const [formCountry, setFormCountry] = useState('United States');
   const [formPhone, setFormPhone] = useState('');
-  const [formBalance, setFormBalance] = useState('1000');
+  const [formBalance, setFormBalance] = useState('0');
   const [formProfit, setFormProfit] = useState('0');
-  const [formKycStatus, setFormKycStatus] = useState<'Unregistered' | 'Pending' | 'Approved'>('Approved');
+  const [formKycStatus, setFormKycStatus] = useState<'Unregistered' | 'Pending' | 'Approved'>('Unregistered');
 
   // Ledger debit/credit state
   const [isAdjustingFunds, setIsAdjustingFunds] = useState(false);
@@ -144,7 +144,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
   // Client Email dispatch simulation
   const [emailTarget, setEmailTarget] = useState('');
-  const [emailSubject, setEmailSubject] = useState('Welcome back to Linkfluence!');
+  const [emailSubject, setEmailSubject] = useState('Welcome back to Affiliate Associate Program!');
   const [emailTemplate, setEmailTemplate] = useState('welcome');
   const [emailCustomMessage, setEmailCustomMessage] = useState('');
   const [isSendingEmail, setIsSendingEmail] = useState(false);
@@ -481,7 +481,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     setFormName('');
     setFormEmail('');
     setFormPhone('');
-    setFormBalance('1000');
+    setFormBalance('0');
     setFormProfit('0');
   };
 
@@ -872,8 +872,8 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   // Template pre-fill
   useEffect(() => {
     if (emailTemplate === 'welcome') {
-      setEmailSubject('Welcome to Linkfluence Partners - Account Activation');
-      setEmailCustomMessage('Welcome to Linkfluence Partner Networks! Your tracker profiles have been generated and you are officially cleared to publish campaigns and acquire clicks.');
+      setEmailSubject('Welcome to Affiliate Associate Program Partners - Account Activation');
+      setEmailCustomMessage('Welcome to Affiliate Associate Program Partner Networks! Your tracker profiles have been generated and you are officially cleared to publish campaigns and acquire clicks.');
     } else if (emailTemplate === 'compliance') {
       setEmailSubject('Urgent Compliance Verification Notification required');
       setEmailCustomMessage('Urgent traffic notification! Our click parity auditor has registered questionable geolocation sub-IDs from your published links. Please verify your traffic sources to avoid capital freezes.');
@@ -906,7 +906,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
             
             <div className="flex flex-col gap-1 mt-1">
               <div className="flex items-center justify-center gap-1.5">
-                <span className="text-xl font-bold tracking-tight text-black font-sans">Linkfluence</span>
+                <span className="text-xl font-bold tracking-tight text-black font-sans">Affiliate Associate Program</span>
                 <span className="bg-rose-50 text-rose-600 border border-rose-100/80 text-[10px] uppercase font-mono px-2 py-0.5 rounded-full font-bold">
                   Console
                 </span>
@@ -1184,9 +1184,9 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                 setFormName('');
                 setFormEmail('');
                 setFormPhone('');
-                setFormBalance('500');
+                setFormBalance('0');
                 setFormProfit('0');
-                setFormKycStatus('Approved');
+                setFormKycStatus('Unregistered');
                 setIsCreatingUser(true);
               }}
               className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center gap-1 cursor-pointer select-none"
@@ -1894,7 +1894,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                   ) : (
                     <>
                       <Send size={13} />
-                      <span>Transmit Linkfluence dispatch</span>
+                      <span>Transmit Program dispatch</span>
                     </>
                   )}
                 </button>

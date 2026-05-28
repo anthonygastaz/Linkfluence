@@ -42,7 +42,7 @@ export default function MarketplaceSandbox({ onJoinClick }: MarketplaceSandboxPr
     <div id="marketplace-sandbox" className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
         <p className="text-sm text-gray-500">
-          Search and preview top commission deals. Join Linkfluence to copy your custom trackers.
+          Search and preview top commission deals. Join Affiliate Associate Program to copy your custom trackers.
         </p>
       </div>
 

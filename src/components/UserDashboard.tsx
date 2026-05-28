@@ -116,34 +116,13 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
   }, [activeTab]);
   
   // Persisted financial state
-  const [balance, setBalance] = useState<number>(2450.50);
-  const [totalProfit, setTotalProfit] = useState<number>(1150.00);
-  const [totalWithdrawals, setTotalWithdrawals] = useState<number>(450.00);
-  const [totalInvestments, setTotalInvestments] = useState<number>(1750.00);
+  const [balance, setBalance] = useState<number>(0);
+  const [totalProfit, setTotalProfit] = useState<number>(0);
+  const [totalWithdrawals, setTotalWithdrawals] = useState<number>(0);
+  const [totalInvestments, setTotalInvestments] = useState<number>(0);
 
   // Active Plans state
-  const [activePlans, setActivePlans] = useState<ActivePlan[]>([
-    {
-      id: 'ap-1',
-      name: 'Starter Plan',
-      amount: 750.00,
-      dailyYieldPercent: 1.5,
-      accruedInterest: 33.75,
-      daysActive: 3,
-      totalDays: 30,
-      dateStarted: '2026-05-22'
-    },
-    {
-      id: 'ap-2',
-      name: 'Growth Plan',
-      amount: 1000.00,
-      dailyYieldPercent: 2.2,
-      accruedInterest: 66.00,
-      daysActive: 3,
-      totalDays: 60,
-      dateStarted: '2026-05-22'
-    }
-  ]);
+  const [activePlans, setActivePlans] = useState<ActivePlan[]>([]);
 
   // KYC state
   const [kyc, setKyc] = useState<KYCData>({
@@ -155,50 +134,9 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
   });
 
   // Transactions logs
-  const [transactions, setTransactions] = useState<Transaction[]>([
-    {
-      id: 'tx-001',
-      type: 'deposit',
-      amount: 2000.00,
-      methodOrPlan: 'USDT (TRC20)',
-      destinationOrDetail: 'Wallet: TLeS3Z9rXv89...',
-      date: '2026-05-20 14:32',
-      status: 'Completed',
-      reference: 'TXN-902347-LF'
-    },
-    {
-      id: 'tx-002',
-      type: 'withdrawal',
-      amount: 450.00,
-      methodOrPlan: 'Bank Wire',
-      destinationOrDetail: 'Chase Bank (Acct: ...9023)',
-      date: '2026-05-22 09:15',
-      status: 'Completed',
-      reference: 'TXN-104928-LF'
-    },
-    {
-      id: 'tx-003',
-      type: 'investment',
-      amount: 750.00,
-      methodOrPlan: 'Starter Plan',
-      destinationOrDetail: 'Locked Contract (30 Days)',
-      date: '2026-05-22 10:10',
-      status: 'Completed',
-      reference: 'TXN-948174-LF'
-    },
-    {
-      id: 'tx-004',
-      type: 'investment',
-      amount: 1000.00,
-      methodOrPlan: 'Growth Plan',
-      destinationOrDetail: 'Locked Contract (60 Days)',
-      date: '2026-05-22 10:12',
-      status: 'Completed',
-      reference: 'TXN-294025-LF'
-    }
-  ]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
 
-  // Load from LocalStorage if available
+  // Load from LocalStorage if available or reset to zero if new account
   useEffect(() => {
     const key = `linkfluence_user_data_${user.email}`;
     const saved = localStorage.getItem(key);
@@ -215,6 +153,21 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
       } catch (e) {
         console.error("Failed to load user state from storage", e);
       }
+    } else {
+      // New account structure - empty
+      setBalance(0);
+      setTotalProfit(0);
+      setTotalWithdrawals(0);
+      setTotalInvestments(0);
+      setActivePlans([]);
+      setKyc({
+        status: 'Unregistered',
+        fullName: '',
+        documentType: 'Nationwide Identity Card',
+        documentNumber: '',
+        country: user.country || 'United States'
+      });
+      setTransactions([]);
     }
   }, [user.email]);
 

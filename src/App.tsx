@@ -78,7 +78,7 @@ export default function App() {
 
   const handleOnboardingSuccess = (recommendedPlan: string) => {
     setSelectedPlanName(recommendedPlan);
-    triggerToast(`Welcome to Linkfluence! Pre-approved account successfully registered!`);
+    triggerToast(`Welcome to Affiliate Associate Program! Pre-approved account successfully registered!`);
   };
 
   const handleAuthSuccess = (userData: { name: string; email: string; country: string; phone: string }) => {
@@ -111,7 +111,7 @@ export default function App() {
     } else if (query.includes('link') || query.includes('limit') || query.includes('traffic')) {
       setHelpAnswer("The Pro & Scale subscriptions unlock unlimited generated tracking links. The Starter package is capped at 10 active trackers. All campaigns support custom click routing and geographical sub-IDs.");
     } else {
-      setHelpAnswer("All Linkfluence links pass through our secure proxy Cloaking servers to prevent link hijacking. Yes, you can safely share your links across YouTube, TikTok, newsletters, or blogs. To register, simply click on 'Start Earning'.");
+      setHelpAnswer("All Affiliate Associate Program links pass through our secure proxy Cloaking servers to prevent link hijacking. Yes, you can safely share your links across YouTube, TikTok, newsletters, or blogs. To register, simply click on 'Start Earning'.");
     }
   };
 
@@ -150,10 +150,10 @@ export default function App() {
         <nav id="global-navbar" className="sticky top-0 w-full z-50 px-4 md:px-6 py-2 bg-white/95 backdrop-blur-md border-b border-gray-100 shadow-xs">
           <div className="max-w-[88rem] mx-auto flex items-center justify-between">
             {/* Left branding */}
-            <div className="flex items-center gap-2 cursor-pointer">
-              <LogoIcon className="text-[#3CB371]" size="30" />
-              <span className="text-2xl font-semibold tracking-tight text-black font-sans">
-                Linkfluence
+            <div className="flex items-center gap-1.5 sm:gap-2 cursor-pointer">
+              <LogoIcon className="text-[#3CB371] flex-shrink-0" size="22" />
+              <span className="text-sm xs:text-base sm:text-2xl font-semibold tracking-tight text-black font-sans whitespace-normal leading-tight max-w-[160px] xs:max-w-[200px] sm:max-w-none sm:whitespace-nowrap">
+                Affiliate Associate Program
               </span>
             </div>
 
@@ -170,7 +170,7 @@ export default function App() {
                 <button
                   onClick={() => {
                     setCurrentUser(null);
-                    triggerToast("Signed out of your Linkfluence account session.");
+                    triggerToast("Signed out of your Affiliate Associate Program account session.");
                   }}
                   type="button"
                   className="text-[10px] sm:text-xs text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-full font-bold px-2 py-0.5 sm:py-1 cursor-pointer font-sans transition-all duration-150"
@@ -193,7 +193,7 @@ export default function App() {
           onLogout={() => {
             localStorage.removeItem('linkfluence_active_user_email');
             setCurrentUser(null);
-            triggerToast("Signed out of your Linkfluence account session.");
+            triggerToast("Signed out of your Affiliate Associate Program account session.");
           }}
           triggerToast={triggerToast}
           onOpenAdmin={() => setActiveModal('admin')}
@@ -247,10 +247,10 @@ export default function App() {
         <div className="max-w-[88rem] mx-auto flex items-center justify-between">
           
           {/* Left branding */}
-          <div className="flex items-center gap-2 cursor-pointer" onClick={() => window.scrollTo({top: 0, behavior: 'smooth'})}>
-            <LogoIcon className="text-[#3CB371] hover:scale-105 transition-transform" size="30" />
-            <span className="text-2xl font-semibold tracking-tight text-black font-sans">
-              Linkfluence
+          <div className="flex items-center gap-1.5 sm:gap-2 cursor-pointer" onClick={() => window.scrollTo({top: 0, behavior: 'smooth'})}>
+            <LogoIcon className="text-[#3CB371] hover:scale-105 transition-transform flex-shrink-0" size="22" />
+            <span className="text-sm xs:text-base sm:text-2xl font-semibold tracking-tight text-black font-sans whitespace-normal leading-tight max-w-[160px] xs:max-w-[200px] sm:max-w-none sm:whitespace-nowrap">
+              Affiliate Associate Program
             </span>
           </div>
 
@@ -289,7 +289,7 @@ export default function App() {
                 <button
                   onClick={() => {
                     setCurrentUser(null);
-                    triggerToast("Signed out of your Linkfluence account session.");
+                    triggerToast("Signed out of your Affiliate Associate Program account session.");
                   }}
                   type="button"
                   className="text-xs text-red-500 hover:text-red-700 font-bold ml-2 cursor-pointer font-sans"
@@ -376,7 +376,7 @@ export default function App() {
                     onClick={() => {
                       setMobileMenuOpen(false);
                       setCurrentUser(null);
-                      triggerToast("Signed out of your Linkfluence account session.");
+                      triggerToast("Signed out of your Affiliate Associate Program account session.");
                     }}
                     type="button"
                     className="w-full bg-red-50 hover:bg-red-100 text-red-600 font-bold py-3 rounded-xl text-center text-xs cursor-pointer transition"
@@ -513,7 +513,7 @@ export default function App() {
             
             <div className="flex flex-col items-start">
               <span className="text-[#3CB371] text-xs font-bold uppercase tracking-widest mb-3 block font-mono">
-                How Linkfluence works
+                How Affiliate Associate Program works
               </span>
               <h2 className="text-black text-4xl md:text-5xl font-semibold leading-[1.12] mb-8 font-sans" style={{ letterSpacing: '-0.03em' }}>
                 From signup<br />
@@ -555,7 +555,7 @@ export default function App() {
                 </h3>
               </div>
               <p className="text-black/70 text-sm md:text-base leading-relaxed mt-3">
-                Sign up for Linkfluence in under two minutes to gain instant access to our real-time tracking suite and exclusive affiliate network.
+                Sign up for Affiliate Associate Program in under two minutes to gain instant access to our real-time tracking suite and exclusive affiliate network.
               </p>
             </div>
 
@@ -662,7 +662,7 @@ export default function App() {
                   </div>
                 </div>
                 <p className="text-black/80 text-xs leading-relaxed font-sans">
-                  "Most other link trackers I have tested always miss conversion pixel events, which loses my money. Linkfluence has been incredibly reliable—I've seen absolute parity on my click registers and zero lost events. Also, seeing payouts hit my feed perfectly on Monday mornings makes planning so easy."
+                  "Most other link trackers I have tested always miss conversion pixel events, which loses my money. State-of-the-art tracking has been incredibly reliable—I've seen absolute parity on my click registers and zero lost events. Also, seeing payouts hit my feed perfectly on Monday mornings makes planning so easy."
                 </p>
                 <span className="text-[10px] font-mono text-gray-400 mt-4 block">11:04 AM · Apr 12, 2026</span>
               </div>
@@ -705,7 +705,7 @@ export default function App() {
                   </div>
                 </div>
                 <p className="text-black/80 text-xs leading-relaxed font-sans">
-                  "If you run high volume organic or paid operations, redirect responsiveness is crucial. Linkfluence is extremely fast, which boosts my conversion ratios. Fast automated withdrawal options are great, and tracking transparency is stellar."
+                  "If you run high volume organic or paid operations, redirect responsiveness is crucial. The Affiliate Associate Program is extremely fast, which boosts my conversion ratios. Fast automated withdrawal options are great, and tracking transparency is stellar."
                 </p>
                 <span className="text-[10px] font-mono text-gray-400 mt-4 block">9:22 AM · Mar 02, 2026</span>
               </div>
@@ -767,7 +767,7 @@ export default function App() {
                   </div>
                 </div>
                 <p className="text-black/80 text-xs leading-relaxed font-sans">
-                  "Most click frameworks require advanced developer settings to prevent false positives. Linkfluence handles redirects perfectly without any lag. Super simple payout flow on Mondays; completely trouble-free platform."
+                  "Most click frameworks require advanced developer settings to prevent false positives. The platform handles redirects perfectly without any lag. Super simple payout flow on Mondays; completely trouble-free platform."
                 </p>
                 <span className="text-[10px] font-mono text-gray-400 mt-4 block">8:12 AM · May 05, 2026</span>
               </div>
@@ -1229,7 +1229,7 @@ export default function App() {
                 Affiliate Marketing made Seamless.
               </h2>
               <p className="text-white/60 text-sm md:text-base leading-relaxed mb-8 max-w-lg mx-auto font-sans font-medium">
-                Linkfluence makes it effortless to track dynamic click data, protect affiliate rewards, and withdraw payouts on autopilot.
+                Affiliate Associate Program makes it effortless to track dynamic click data, protect affiliate rewards, and withdraw payouts on autopilot.
               </p>
               <button 
                 type="button"
@@ -1254,11 +1254,11 @@ export default function App() {
                 <div className="flex items-center gap-2.5">
                   <LogoIcon className="text-[#3CB371]" size="28" />
                   <span className="text-xl font-bold text-black font-sans tracking-tight" style={{ letterSpacing: '-0.03em' }}>
-                    Linkfluence
+                    Affiliate Associate Program
                   </span>
                 </div>
                 <p className="text-gray-500 text-xs md:text-sm leading-relaxed max-w-sm font-sans mt-2">
-                  Linkfluence helps creators and high-yield performance teams transform complex click redirect streams into safe, transparent reward streams — everything you need in one simple platform.
+                  Affiliate Associate Program helps creators and high-yield performance teams transform complex click redirect streams into safe, transparent reward streams — everything you need in one simple platform.
                 </p>
               </div>
 
@@ -1362,7 +1362,7 @@ export default function App() {
             {/* Legal strip */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-medium text-[#111] relative z-10 font-sans">
               <div className="text-gray-500">
-                <span>© 2026 Linkfluence. All rights reserved.</span>
+                <span>© 2026 Affiliate Associate Program. All rights reserved.</span>
               </div>
               <div className="flex items-center gap-6">
                 <button type="button" onClick={() => setActiveModal('help')} className="text-gray-500 hover:text-[#3CB371] transition cursor-pointer">
@@ -1391,7 +1391,7 @@ export default function App() {
       <Modal
         isOpen={activeModal === 'signup'}
         onClose={() => setActiveModal('none')}
-        title="Join Linkfluence Partner Network"
+        title="Join Affiliate Associate Program Network"
       >
         <AuthModal
           initialTab="signup"
@@ -1417,7 +1417,7 @@ export default function App() {
       <Modal
         isOpen={activeModal === 'onboarding'}
         onClose={() => setActiveModal('none')}
-        title="Apply for Linkfluence Partnership"
+        title="Apply for Affiliate Associate Program Partnership"
       >
         <OnboardingStepForm
           onSuccess={handleOnboardingSuccess}
@@ -1431,7 +1431,7 @@ export default function App() {
       <Modal
         isOpen={activeModal === 'marketplace'}
         onClose={() => setActiveModal('none')}
-        title="Linkfluence Active Offer Marketplace"
+        title="Affiliate Associate Program Active Offer Marketplace"
       >
         <MarketplaceSandbox
           onJoinClick={() => setActiveModal('onboarding')}
@@ -1442,7 +1442,7 @@ export default function App() {
       <Modal
         isOpen={activeModal === 'help'}
         onClose={() => setActiveModal('none')}
-        title="Linkfluence Instant Help & Compliance Desk"
+        title="Affiliate Associate Program Instant Help & Compliance Desk"
       >
         <div id="help-modal-content" className="flex flex-col gap-5 text-left">
           <div className="bg-white border border-gray-100 p-4 rounded-2xl flex flex-col gap-2">

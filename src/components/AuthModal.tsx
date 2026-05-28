@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { User, Mail, Globe, Phone, Lock, Eye, EyeOff, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { supabaseService } from '../lib/supabaseService';
 
 interface AuthModalProps {
   initialTab?: 'signup' | 'signin';
@@ -43,7 +45,7 @@ export default function AuthModal({ initialTab = 'signup', onSuccess, onClose }:
     setErrorText(null);
   };
 
-  const handleSignUpSubmit = (e: React.FormEvent) => {
+  const handleSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorText(null);
 
@@ -71,20 +73,46 @@ export default function AuthModal({ initialTab = 'signup', onSuccess, onClose }:
 
     setLoading(true);
 
-    // Simulate database interaction
-    setTimeout(() => {
-      setLoading(false);
-      onSuccess({
-        name: fullName,
-        email: email,
-        country: country,
-        phone: phone,
-      });
-      onClose();
-    }, 1200);
+    if (isSupabaseConfigured()) {
+      try {
+        const data = await supabaseService.signUp(email, password, {
+          name: fullName,
+          country,
+          phone
+        });
+
+        // Try to fetch or create profile automatically
+        if (data.user) {
+          const profile = await supabaseService.fetchProfile(data.user.id, data.user.email || email);
+          onSuccess({
+            name: profile?.name || fullName,
+            email: profile?.email || email,
+            country: profile?.country || country,
+            phone: profile?.phone || phone,
+          });
+        }
+        setLoading(false);
+        onClose();
+      } catch (err: any) {
+        setLoading(false);
+        setErrorText(err.message || 'Error occurred during Supabase account creation.');
+      }
+    } else {
+      // Simulate database interaction
+      setTimeout(() => {
+        setLoading(false);
+        onSuccess({
+          name: fullName,
+          email: email,
+          country: country,
+          phone: phone,
+        });
+        onClose();
+      }, 1200);
+    }
   };
 
-  const handleSignInSubmit = (e: React.FormEvent) => {
+  const handleSignInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorText(null);
 
@@ -99,18 +127,38 @@ export default function AuthModal({ initialTab = 'signup', onSuccess, onClose }:
 
     setLoading(true);
 
-    // Simulate database interaction containing mock check
-    setTimeout(() => {
-      setLoading(false);
-      // Simulate login for Marcus Thorne or Liam Harris or newly created
-      onSuccess({
-        name: signInEmail.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase()),
-        email: signInEmail,
-        country: 'United States',
-        phone: '+1 (555) 019-2831',
-      });
-      onClose();
-    }, 1000);
+    if (isSupabaseConfigured()) {
+      try {
+        const data = await supabaseService.signIn(signInEmail, signInPassword);
+        if (data.user) {
+          const profile = await supabaseService.fetchProfile(data.user.id, data.user.email || signInEmail);
+          onSuccess({
+            name: profile?.name || data.user.user_metadata?.name || signInEmail.split('@')[0],
+            email: profile?.email || data.user.email || signInEmail,
+            country: profile?.country || data.user.user_metadata?.country || 'United States',
+            phone: profile?.phone || data.user.user_metadata?.phone || '',
+          });
+        }
+        setLoading(false);
+        onClose();
+      } catch (err: any) {
+        setLoading(false);
+        setErrorText(err.message || 'Failed to authenticate via Supabase. Verify email or password code.');
+      }
+    } else {
+      // Simulate database interaction containing mock check
+      setTimeout(() => {
+        setLoading(false);
+        // Simulate login for Marcus Thorne or Liam Harris or newly created
+        onSuccess({
+          name: signInEmail.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase()),
+          email: signInEmail,
+          country: 'United States',
+          phone: '+1 (555) 019-2831',
+        });
+        onClose();
+      }, 1000);
+    }
   };
 
   return (
@@ -149,7 +197,7 @@ export default function AuthModal({ initialTab = 'signup', onSuccess, onClose }:
         </div>
         <div>
           <h4 className="text-xs font-bold text-black uppercase tracking-wider font-mono">
-            {activeTab === 'signup' ? 'Institutional Linkfluence Partner Access' : 'Secure Session Access'}
+            {activeTab === 'signup' ? 'Institutional Partner Access' : 'Secure Session Access'}
           </h4>
           <p className="text-gray-500 text-xs mt-1 leading-normal">
             {activeTab === 'signup' 

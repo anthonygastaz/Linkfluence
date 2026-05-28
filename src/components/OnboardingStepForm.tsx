@@ -221,7 +221,7 @@ export default function OnboardingStepForm({ onSuccess, onClose }: OnboardingSte
                   className="mt-1 accent-[#3CB371]"
                 />
                 <label htmlFor="agree-checkbox" className="text-xs text-gray-500 leading-snug cursor-pointer select-none">
-                  I agree to Linkfluence's Terms of Service and Payout Integrity Policy. I confirm I will promote offers ethically without artificial clicks.
+                  I agree to the Affiliate Associate Program's Terms of Service and Payout Integrity Policy. I confirm I will promote offers ethically without artificial clicks.
                 </label>
               </div>
 
@@ -253,7 +253,7 @@ export default function OnboardingStepForm({ onSuccess, onClose }: OnboardingSte
 
           <h3 className="text-2xl font-bold text-black tracking-tight mb-2">Congratulations, {formData.name}!</h3>
           <p className="text-gray-500 text-sm max-w-sm mb-6 leading-relaxed">
-            Your Linkfluence application for <span className="font-mono font-medium text-black">{formData.handle}</span> has been provisionally pre-approved!
+            Your Affiliate Associate Program application for <span className="font-mono font-medium text-black">{formData.handle}</span> has been provisionally pre-approved!
           </p>
 
           <div className="bg-white border border-gray-100 rounded-2xl p-5 w-full text-left flex flex-col gap-3 mb-6">
