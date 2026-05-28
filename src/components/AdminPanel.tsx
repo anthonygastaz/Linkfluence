@@ -711,6 +711,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     setPaymentGateways(updatedGateways);
     triggerToast(`Payment method rules updated.`);
     addLog(`Tuned dynamic transaction routing rules for gateway ${gatewayForm.name}`, 'info');
+    window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email: 'graphicbullng@gmail.com' } }));
 
     setIsEditingGateway(false);
     setEditingGatewayId(null);
@@ -729,6 +730,18 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     localStorage.setItem('linkfluence_payment_methods', JSON.stringify(updated));
     setPaymentGateways(updated);
     triggerToast(`Payment gateway status updated.`);
+    window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email: 'graphicbullng@gmail.com' } }));
+  };
+
+  const handleDeleteGatewayClick = (id: string, name: string) => {
+    if (window.confirm(`Are you sure you want to delete the payment option "${name}"?`)) {
+      const remaining = paymentGateways.filter(g => g.id !== id);
+      localStorage.setItem('linkfluence_payment_methods', JSON.stringify(remaining));
+      setPaymentGateways(remaining);
+      addLog(`Deleted payment option configuration: ${name}`, 'warn');
+      triggerToast(`Payment option deleted.`);
+      window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email: 'graphicbullng@gmail.com' } }));
+    }
   };
 
   // Action 7: Approve / Deny Withdrawal Requests
@@ -1066,7 +1079,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                 activeTab === 'payment-methods' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-400 hover:text-gray-600'
               }`}
             >
-              <span className="flex items-center gap-2"><Sliders size={14} /> Gates Settings</span>
+              <span className="flex items-center gap-2"><Sliders size={14} /> Payment Settings</span>
               <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-medium ${activeTab === 'payment-methods' ? 'bg-white/15' : 'bg-gray-100'}`}>
                 {paymentGateways.length}
               </span>
@@ -1667,8 +1680,8 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
         <div className="bg-white border border-gray-100 p-5 rounded-2xl flex flex-col gap-4 shadow-xs animate-[fadeIn_0.15s_ease-out]">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
-              <h4 className="text-sm font-bold text-black uppercase tracking-wider font-mono">Gateway payment Systems Channels</h4>
-              <p className="text-gray-400 text-xs mt-0.5">Activate or modify addresses, details, or operational conditions for USDT, Bitcoin, Bank Wires, or Credit Terminals.</p>
+              <h4 className="text-sm font-bold text-black uppercase tracking-wider font-mono">Payment Settings & Gates</h4>
+              <p className="text-gray-400 text-xs mt-0.5">Activate, modify, or decommission addresses, details, or operational conditions for USDT, Bitcoin, Bank Wires, or Credit Terminals.</p>
             </div>
 
             <button
@@ -1761,7 +1774,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                   </div>
                 </div>
 
-                <div className="flex gap-1 justify-end border-t border-gray-100 mt-3 pt-3">
+                <div className="flex gap-1.5 justify-end border-t border-gray-100 mt-3 pt-3">
                   <button
                     onClick={() => {
                       setEditingGatewayId(g.id);
@@ -1774,9 +1787,18 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                       });
                       setIsEditingGateway(true);
                     }}
-                    className="p-1 px-2 border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 rounded text-[10px] font-bold uppercase transition"
+                    className="p-1 px-2.5 border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 rounded text-[10px] font-bold uppercase transition cursor-pointer"
                   >
                     Configure
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteGatewayClick(g.id, g.name)}
+                    className="p-1 px-2.5 bg-rose-50 border border-rose-200 text-rose-650 hover:bg-rose-500 hover:text-white rounded text-[10px] font-bold uppercase transition flex items-center gap-1 cursor-pointer font-sans"
+                    title="Delete Payment Option"
+                  >
+                    <Trash2 size={10} />
+                    Delete
                   </button>
                 </div>
               </div>
