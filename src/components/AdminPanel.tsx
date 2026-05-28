@@ -188,8 +188,22 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       localStorage.removeItem(`linkfluence_user_data_${email}`);
     });
 
-    // Seed roster index starting with graphicbullng@gmail.com
+    // Seed/Load roster index starting with graphicbullng@gmail.com and keeping newly registered users
     let emails = ['graphicbullng@gmail.com'];
+    const savedRoster = localStorage.getItem('linkfluence_users_roster');
+    if (savedRoster) {
+      try {
+        const parsed = JSON.parse(savedRoster);
+        if (Array.isArray(parsed)) {
+          // Merge unique emails, discarding obsolete mock ones but preserving any others
+          const uniqueEmails = new Set([...parsed, 'graphicbullng@gmail.com']);
+          obsoleteMockEmails.forEach(obs => uniqueEmails.delete(obs));
+          emails = Array.from(uniqueEmails);
+        }
+      } catch (e) {
+        console.error("Error patching existing roster on startup", e);
+      }
+    }
     localStorage.setItem('linkfluence_users_roster', JSON.stringify(emails));
 
     // 2. Seeding zeroed out clean records for graphicbullng@gmail.com
@@ -208,10 +222,14 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       }
     };
 
-    // Store profiles and datas (overwriting to ensure mock states are completely purged)
+    // Store profiles and datas (overwriting only if not already initialized)
     Object.keys(defaultData).forEach(email => {
-      localStorage.setItem(`linkfluence_user_profile_${email}`, JSON.stringify(defaultData[email].profile));
-      localStorage.setItem(`linkfluence_user_data_${email}`, JSON.stringify(defaultData[email].data));
+      if (!localStorage.getItem(`linkfluence_user_profile_${email}`)) {
+        localStorage.setItem(`linkfluence_user_profile_${email}`, JSON.stringify(defaultData[email].profile));
+      }
+      if (!localStorage.getItem(`linkfluence_user_data_${email}`)) {
+        localStorage.setItem(`linkfluence_user_data_${email}`, JSON.stringify(defaultData[email].data));
+      }
     });
 
     // 3. System Investment Pools configuration
@@ -354,6 +372,9 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
         }
       } catch (e) {}
     }
+
+    // Seeding/Updating notification event to immediately synchronize user dashboards
+    window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email } }));
 
     // In case we're editing the currently logged-in user in client, sync their state!
     if (currentUser && currentUser.email === email) {
