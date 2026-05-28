@@ -128,6 +128,27 @@ export default function App() {
     localStorage.setItem('linkfluence_active_user_email', userData.email);
     localStorage.setItem(`linkfluence_user_profile_${userData.email}`, JSON.stringify(userData));
     
+    // Seed user account data if not present
+    const dataKey = `linkfluence_user_data_${userData.email}`;
+    if (!localStorage.getItem(dataKey)) {
+      const defaultData = {
+        balance: 0.00,
+        totalProfit: 0.00,
+        totalWithdrawals: 0.00,
+        totalInvestments: 0.00,
+        activePlans: [],
+        kyc: { 
+          status: 'Unregistered', 
+          fullName: userData.name, 
+          documentType: 'National ID Card', 
+          documentNumber: '', 
+          country: userData.country || 'United States' 
+        },
+        transactions: []
+      };
+      localStorage.setItem(dataKey, JSON.stringify(defaultData));
+    }
+
     // Add to roster index
     let roster: string[] = [];
     const savedRoster = localStorage.getItem('linkfluence_users_roster');
