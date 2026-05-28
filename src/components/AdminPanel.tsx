@@ -181,102 +181,37 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   };
 
   const initDefaultDatabase = () => {
-    // 1. Core Users Roster
-    let savedRoster = localStorage.getItem('linkfluence_users_roster');
-    let emails = ['graphicbullng@gmail.com', 'harris.liam@linkfluence.io', 'chloe.s@linkfluence.com', 's.jenkins@affiliates.net'];
-    
-    if (!savedRoster) {
-      localStorage.setItem('linkfluence_users_roster', JSON.stringify(emails));
-    } else {
-      try {
-        const parsed = JSON.parse(savedRoster);
-        // Ensure Graphic Bull and standard listings exist in parsed list
-        emails.forEach(e => {
-          if (!parsed.includes(e)) parsed.push(e);
-        });
-        localStorage.setItem('linkfluence_users_roster', JSON.stringify(parsed));
-      } catch (e) {
-        localStorage.setItem('linkfluence_users_roster', JSON.stringify(emails));
-      }
-    }
+    // 1. Core Users Roster - clean and free of obsolete mock email addresses
+    const obsoleteMockEmails = ['harris.liam@linkfluence.io', 'chloe.s@linkfluence.com', 's.jenkins@affiliates.net'];
+    obsoleteMockEmails.forEach(email => {
+      localStorage.removeItem(`linkfluence_user_profile_${email}`);
+      localStorage.removeItem(`linkfluence_user_data_${email}`);
+    });
 
-    // 2. Seeding individual profiles & balance blocks
+    // Seed roster index starting with graphicbullng@gmail.com
+    let emails = ['graphicbullng@gmail.com'];
+    localStorage.setItem('linkfluence_users_roster', JSON.stringify(emails));
+
+    // 2. Seeding zeroed out clean records for graphicbullng@gmail.com
     const defaultData: { [key: string]: { profile: any, data: UserState } } = {
       'graphicbullng@gmail.com': {
         profile: { name: 'Graphic Bull', email: 'graphicbullng@gmail.com', country: 'United States', phone: '+1 (555) 019-2831' },
         data: {
-          balance: 2450.50,
-          totalProfit: 1150.00,
-          totalWithdrawals: 450.00,
-          totalInvestments: 1750.00,
-          activePlans: [
-            { id: 'ap-gb1', name: 'Starter Plan', amount: 750.00, dailyYieldPercent: 1.5, accruedInterest: 33.75, daysActive: 3, totalDays: 30, dateStarted: '2026-05-25' },
-            { id: 'ap-gb2', name: 'Growth Plan', amount: 1000.00, dailyYieldPercent: 2.2, accruedInterest: 44.00, daysActive: 2, totalDays: 60, dateStarted: '2026-05-26' }
-          ],
-          kyc: { status: 'Pending', fullName: 'Jane Doe', documentType: 'Driving License', documentNumber: 'DL-908234-US', country: 'United States', submittedAt: '2026-05-28 02:10' },
-          transactions: [
-            { id: 'tx-gb-1', type: 'deposit', amount: 3500.00, methodOrPlan: 'USDT (TRC20)', destinationOrDetail: 'TLeS3Z9rXv89U6p7YQ18n5DmVyF9oWk2bX', date: '2026-05-22 10:11', status: 'Completed', reference: 'TXN-294025-LF' },
-            { id: 'tx-gb-2', type: 'investment', amount: 750.00, methodOrPlan: 'Starter Plan', destinationOrDetail: 'Capital Allocation Locked', date: '2026-05-25 14:22', status: 'Completed', reference: 'TXN-820194-LF' },
-            { id: 'tx-gb-3', type: 'investment', amount: 1000.00, methodOrPlan: 'Growth Plan', destinationOrDetail: 'Capital Allocation Locked', date: '2026-05-26 09:12', status: 'Completed', reference: 'TXN-719302-LF' },
-            { id: 'tx-gb-4', type: 'withdrawal', amount: 450.00, methodOrPlan: 'Bitcoin Wallet', destinationOrDetail: 'bc1q9p3...8j0u2a', date: '2026-05-28 01:45', status: 'Pending', reference: 'TXN-481029-LF' }
-          ]
-        }
-      },
-      'harris.liam@linkfluence.io': {
-        profile: { name: 'Liam Harris', email: 'harris.liam@linkfluence.io', country: 'United Kingdom', phone: '+44 7911 123456' },
-        data: {
-          balance: 14202.00,
-          totalProfit: 5210.00,
-          totalWithdrawals: 1200.00,
-          totalInvestments: 8500.00,
-          activePlans: [
-            { id: 'ap-h1', name: 'Pro Premier Plan', amount: 8500.00, dailyYieldPercent: 3.0, accruedInterest: 510.00, daysActive: 2, totalDays: 90, dateStarted: '2026-05-26' }
-          ],
-          kyc: { status: 'Approved', fullName: 'Liam Harris', documentType: 'International Passport', documentNumber: 'GB-P2293041', country: 'United Kingdom', submittedAt: '2026-05-25 11:20' },
-          transactions: [
-            { id: 'tx-h-1', type: 'deposit', amount: 15402.00, methodOrPlan: 'Bank Wire', destinationOrDetail: 'Beneficiary LF-Wire Desk', date: '2026-05-24 16:11', status: 'Completed', reference: 'TXN-102941-LF' },
-            { id: 'tx-h-2', type: 'investment', amount: 8500.00, methodOrPlan: 'Pro Premier Plan', destinationOrDetail: 'Capital Allocation Locked', date: '2026-05-26 12:00', status: 'Completed', reference: 'TXN-882201-LF' },
-            { id: 'tx-h-3', type: 'withdrawal', amount: 1200.00, methodOrPlan: 'USDT (ERC20)', destinationOrDetail: '0x71C8e...8e9b', date: '2026-05-27 18:42', status: 'Completed', reference: 'TXN-774012-LF' }
-          ]
-        }
-      },
-      'chloe.s@linkfluence.com': {
-        profile: { name: 'Chloe Stanford', email: 'chloe.s@linkfluence.com', country: 'Canada', phone: '+1 613 555 0122' },
-        data: {
-          balance: 480.00,
-          totalProfit: 190.00,
-          totalWithdrawals: 120.00,
-          totalInvestments: 300.00,
+          balance: 0.00,
+          totalProfit: 0.00,
+          totalWithdrawals: 0.00,
+          totalInvestments: 0.00,
           activePlans: [],
-          kyc: { status: 'Pending', fullName: 'Chloe Stanford', documentType: 'National ID Card', documentNumber: 'CA-ID-481920', country: 'Canada', submittedAt: '2026-05-28 01:10' },
-          transactions: [
-            { id: 'tx-c-1', type: 'deposit', amount: 900.00, methodOrPlan: 'PayPal Gateway', destinationOrDetail: 'PayPal Checkout', date: '2026-05-23 04:12', status: 'Completed', reference: 'TXN-382910-LF' },
-            { id: 'tx-c-2', type: 'withdrawal', amount: 120.00, methodOrPlan: 'PayPal Email', destinationOrDetail: 'chloe.s@linkfluence.com', date: '2026-05-28 01:10', status: 'Pending', reference: 'TXN-773981-LF' }
-          ]
-        }
-      },
-      's.jenkins@affiliates.net': {
-        profile: { name: 'Sarah Jenkins', email: 's.jenkins@affiliates.net', country: 'Australia', phone: '+61 2 9382 1234' },
-        data: {
-          balance: 12940.00,
-          totalProfit: 4850.00,
-          totalWithdrawals: 1200.00,
-          totalInvestments: 8500.00,
-          activePlans: [],
-          kyc: { status: 'Approved', fullName: 'Sarah Jenkins', documentType: 'Driving License', documentNumber: 'AU-DL-882291', country: 'Australia', submittedAt: '2026-05-24 16:02' },
+          kyc: { status: 'Unregistered', fullName: '', documentType: 'National ID Card', documentNumber: '', country: 'United States' },
           transactions: []
         }
       }
     };
 
-    // Store profiles and datas if not already seeded
+    // Store profiles and datas (overwriting to ensure mock states are completely purged)
     Object.keys(defaultData).forEach(email => {
-      if (!localStorage.getItem(`linkfluence_user_profile_${email}`)) {
-        localStorage.setItem(`linkfluence_user_profile_${email}`, JSON.stringify(defaultData[email].profile));
-      }
-      if (!localStorage.getItem(`linkfluence_user_data_${email}`)) {
-        localStorage.setItem(`linkfluence_user_data_${email}`, JSON.stringify(defaultData[email].data));
-      }
+      localStorage.setItem(`linkfluence_user_profile_${email}`, JSON.stringify(defaultData[email].profile));
+      localStorage.setItem(`linkfluence_user_data_${email}`, JSON.stringify(defaultData[email].data));
     });
 
     // 3. System Investment Pools configuration
@@ -302,6 +237,9 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     if (!localStorage.getItem('linkfluence_payment_methods')) {
       localStorage.setItem('linkfluence_payment_methods', JSON.stringify(defaultGateways));
     }
+
+    // Notify any active listeners of system data load / updates
+    window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email: 'graphicbullng@gmail.com' } }));
   };
 
   const loadRosterAndConfig = () => {

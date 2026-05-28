@@ -171,6 +171,45 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
     }
   }, [user.email]);
 
+  // Listen for admin panel changes on user balance, plans, transactions, kyc, or gateways
+  useEffect(() => {
+    const handleAdminSync = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      // Synchronize active user state if the changed email matches
+      if (customEvent.detail && customEvent.detail.email === user.email) {
+        const key = `linkfluence_user_data_${user.email}`;
+        const saved = localStorage.getItem(key);
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (parsed.balance !== undefined) setBalance(parsed.balance);
+            if (parsed.totalProfit !== undefined) setTotalProfit(parsed.totalProfit);
+            if (parsed.totalWithdrawals !== undefined) setTotalWithdrawals(parsed.totalWithdrawals);
+            if (parsed.totalInvestments !== undefined) setTotalInvestments(parsed.totalInvestments);
+            if (parsed.activePlans !== undefined) setActivePlans(parsed.activePlans);
+            if (parsed.kyc !== undefined) setKyc(parsed.kyc);
+            if (parsed.transactions !== undefined) setTransactions(parsed.transactions);
+          } catch (err) {
+            console.error("Failed to sync on administrative event", err);
+          }
+        }
+      }
+      
+      // Also sync active investment plans config changes if any
+      const plansSaved = localStorage.getItem('linkfluence_investment_plans');
+      if (plansSaved) {
+        try {
+          setPlans(JSON.parse(plansSaved));
+        } catch (err) {}
+      }
+    };
+
+    window.addEventListener('linkfluence_data_updated', handleAdminSync);
+    return () => {
+      window.removeEventListener('linkfluence_data_updated', handleAdminSync);
+    };
+  }, [user.email]);
+
   // Listen for admin panel demoFundBoost changes
   const prevBoostRef = React.useRef<number>(0);
   React.useEffect(() => {
