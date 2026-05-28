@@ -41,6 +41,49 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Handle /admin and query parameters / hashes direct routing
+  useEffect(() => {
+    const handleUrlRouting = () => {
+      const path = window.location.pathname;
+      const hash = window.location.hash;
+      const search = window.location.search;
+      if (
+        path === '/admin' || 
+        path.endsWith('/admin') || 
+        hash === '#/admin' || 
+        hash === '#admin' || 
+        search.includes('admin')
+      ) {
+        setActiveModal('admin');
+      }
+    };
+
+    handleUrlRouting();
+    window.addEventListener('popstate', handleUrlRouting);
+    window.addEventListener('hashchange', handleUrlRouting);
+
+    return () => {
+      window.removeEventListener('popstate', handleUrlRouting);
+      window.removeEventListener('hashchange', handleUrlRouting);
+    };
+  }, []);
+
+  const handleOpenAdmin = () => {
+    setActiveModal('admin');
+    window.history.pushState(null, '', '/admin');
+  };
+
+  const handleCloseAdmin = () => {
+    setActiveModal('none');
+    if (window.location.pathname === '/admin' || window.location.pathname.endsWith('/admin')) {
+      window.history.pushState(null, '', '/');
+    } else if (window.location.hash === '#/admin' || window.location.hash === '#admin') {
+      window.history.pushState(null, '', ' ');
+    } else {
+      window.history.pushState(null, '', '/');
+    }
+  };
+
   // Help center chat bot
   const [helpSearch, setHelpSearch] = useState('');
   const [helpAnswer, setHelpAnswer] = useState<string | null>(null);
@@ -128,7 +171,7 @@ export default function App() {
               setCurrentUser(updated);
             }}
             triggerToast={triggerToast}
-            onClose={() => setActiveModal('none')}
+            onClose={handleCloseAdmin}
           />
         </div>
 
@@ -196,7 +239,7 @@ export default function App() {
             triggerToast("Signed out of your Affiliate Associate Program account session.");
           }}
           triggerToast={triggerToast}
-          onOpenAdmin={() => setActiveModal('admin')}
+          onOpenAdmin={handleOpenAdmin}
         />
 
         {/* Dynamic Activity Toast notifications */}
@@ -1344,7 +1387,7 @@ export default function App() {
                       </button>
                     </li>
                     <li>
-                      <button type="button" onClick={() => setActiveModal('admin')} className="hover:text-rose-500 text-rose-500 font-semibold transition text-left cursor-pointer flex items-center gap-1.5">
+                      <button type="button" onClick={handleOpenAdmin} className="hover:text-rose-500 text-rose-500 font-semibold transition text-left cursor-pointer flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
                         Admin Panel
                       </button>
@@ -1371,7 +1414,7 @@ export default function App() {
                 <button type="button" onClick={() => setActiveModal('help')} className="text-gray-500 hover:text-[#3CB371] transition cursor-pointer">
                   Privacy Policy
                 </button>
-                <button type="button" onClick={() => setActiveModal('admin')} className="hover:bg-rose-150/40 hover:text-rose-600 text-rose-500 font-semibold transition cursor-pointer flex items-center gap-1 bg-rose-50/50 border border-rose-100/40 px-2.5 py-1.5 rounded-xl text-xs">
+                <button type="button" onClick={handleOpenAdmin} className="hover:bg-rose-150/40 hover:text-rose-600 text-rose-500 font-semibold transition cursor-pointer flex items-center gap-1 bg-rose-50/50 border border-rose-100/40 px-2.5 py-1.5 rounded-xl text-xs">
                   <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
                   Admin Portal
                 </button>
