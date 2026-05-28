@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Redirecting to Admin Panel...</title>
+  <script>
+    // Seamlessly transition the browser to the main page's routing state
+    window.location.replace('/#/admin');
+  </script>
+</head>
+<body>
+  <noscript>
+    <meta http-equiv="refresh" content="0; url=/#/admin" />
+  </noscript>
+  <div style="font-family: system-ui, -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background-color: #fcfcfc; color: #333;">
+    <div style="width: 40px; height: 40px; border: 3px solid #3CB371; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 16px;"></div>
+    <p style="font-size: 15px; font-weight: 500; margin: 0;">Loading Admin Portal...</p>
+    <style>
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+  </div>
+</body>
+</html>
