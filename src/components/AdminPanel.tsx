@@ -186,7 +186,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
   const initDefaultDatabase = () => {
     // 1. Core Users Roster - clean and free of obsolete mock email addresses
-    const obsoleteMockEmails = ['harris.liam@linkfluence.io', 'chloe.s@linkfluence.com', 's.jenkins@affiliates.net'];
+    const obsoleteMockEmails = ['harris.liam@linkfluence.io', 'chloe.s@linkfluence.com', 's.jenkins@affiliates.net', 'anthonygastaz@gmail.com'];
     obsoleteMockEmails.forEach(email => {
       localStorage.removeItem(`linkfluence_user_profile_${email}`);
       localStorage.removeItem(`linkfluence_user_data_${email}`);
@@ -200,13 +200,15 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
         const parsed = JSON.parse(savedRoster);
         if (Array.isArray(parsed)) {
           // Merge unique emails, discarding obsolete mock ones but preserving any others
-          const uniqueEmails = new Set([...parsed, 'graphicbullng@gmail.com']);
+          const uniqueEmails = new Set(parsed);
           obsoleteMockEmails.forEach(obs => uniqueEmails.delete(obs));
           emails = Array.from(uniqueEmails);
         }
       } catch (e) {
         console.error("Error patching existing roster on startup", e);
       }
+    } else {
+      localStorage.setItem('linkfluence_users_roster', JSON.stringify(emails));
     }
     localStorage.setItem('linkfluence_users_roster', JSON.stringify(emails));
 
@@ -512,11 +514,6 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   };
 
   const handleDeleteUser = (email: string) => {
-    if (email === 'graphicbullng@gmail.com') {
-      triggerToast("Deletion Bypassed! This represents the root evaluator session account.");
-      return;
-    }
-
     if (window.confirm(`Are you sure you want to permanently delete user: ${email}? This collapses all records immediately.`)) {
       localStorage.removeItem(`linkfluence_user_profile_${email}`);
       localStorage.removeItem(`linkfluence_user_data_${email}`);

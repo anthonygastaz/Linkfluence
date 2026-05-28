@@ -109,6 +109,83 @@ export default function App() {
     setTimeout(() => setShowToast(false), 4000);
   };
 
+  // Installs the Smartsupp Chatbot and dynamically toggles visibility
+  useEffect(() => {
+    // 1. Initialise _smartsupp loader function and configuration key
+    const initSmartsupp = () => {
+      if ((window as any)._smartsuppInitRun) return;
+      (window as any)._smartsuppInitRun = true;
+
+      // Smartsupp loader snippet with the requested key
+      (window as any)._smartsupp = (window as any)._smartsupp || {};
+      (window as any)._smartsupp.key = '3969b554ed87eb67b4bce80d7c2402862124d323';
+
+      if (!(window as any).smartsupp) {
+        const o = (window as any).smartsupp = function() {
+          (o as any)._.push(arguments);
+        };
+        (o as any)._ = [];
+
+        const d = document;
+        const s = d.getElementsByTagName('script')[0];
+        const c = d.createElement('script');
+        c.type = 'text/javascript';
+        c.charset = 'utf-8';
+        c.async = true;
+        c.src = 'https://www.smartsuppchat.com/loader.js?';
+        if (s && s.parentNode) {
+          s.parentNode.insertBefore(c, s);
+        } else {
+          d.head.appendChild(c);
+        }
+      }
+    };
+
+    initSmartsupp();
+
+    // 2. Control visibility: enable chat everywhere EXCEPT the admin portal modal
+    const isAdminMode = activeModal === 'admin';
+    const smartsuppRef = (window as any).smartsupp;
+
+    if (smartsuppRef) {
+      try {
+        if (isAdminMode) {
+          smartsuppRef('chat:hide');
+        } else {
+          smartsuppRef('chat:show');
+        }
+      } catch (err) {
+        console.warn("Smartsupp visibility command failed", err);
+      }
+    }
+
+    // Direct CSS injector as a robust double layer override
+    let styleTag = document.getElementById('smartsupp-admin-hide-css');
+    if (isAdminMode) {
+      if (!styleTag) {
+        styleTag = document.createElement('style');
+        styleTag.id = 'smartsupp-admin-hide-css';
+        styleTag.innerHTML = `
+          #smartsupp-widget-container,
+          .smartsupp-widget,
+          .smartsupp-widget-container,
+          iframe[src*="smartsupp"],
+          [class*="smartsupp"] {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+          }
+        `;
+        document.head.appendChild(styleTag);
+      }
+    } else {
+      if (styleTag) {
+        styleTag.parentNode?.removeChild(styleTag);
+      }
+    }
+  }, [activeModal]);
+
   const handleChoosePlan = (planName: string) => {
     setSelectedPlanName(planName);
     setActiveModal('signup');
