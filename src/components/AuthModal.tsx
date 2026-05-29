@@ -138,11 +138,27 @@ export default function AuthModal({ initialTab = 'signup', onSuccess, onClose }:
         const data = await supabaseService.signIn(signInEmail, signInPassword);
         if (data.user) {
           const profile = await supabaseService.fetchProfile(data.user.id, data.user.email || signInEmail);
+          const normalizedEmail = signInEmail.trim().toLowerCase();
+          let localName = '';
+          let localCountry = '';
+          let localPhone = '';
+          try {
+            const savedProfileStr = localStorage.getItem(`linkfluence_user_profile_${normalizedEmail}`);
+            if (savedProfileStr) {
+              const savedProfile = JSON.parse(savedProfileStr);
+              if (savedProfile) {
+                localName = savedProfile.name;
+                localCountry = savedProfile.country;
+                localPhone = savedProfile.phone;
+              }
+            }
+          } catch (e) {}
+
           onSuccess({
-            name: profile?.name || data.user.user_metadata?.name || signInEmail.split('@')[0],
+            name: profile?.name || data.user.user_metadata?.name || localName || signInEmail.split('@')[0],
             email: profile?.email || data.user.email || signInEmail,
-            country: profile?.country || data.user.user_metadata?.country || 'United States',
-            phone: profile?.phone || data.user.user_metadata?.phone || '',
+            country: profile?.country || data.user.user_metadata?.country || localCountry || 'United States',
+            phone: profile?.phone || data.user.user_metadata?.phone || localPhone || '',
           });
         }
         setLoading(false);
@@ -152,11 +168,32 @@ export default function AuthModal({ initialTab = 'signup', onSuccess, onClose }:
         // Graceful fallback to local simulated mode for offline or unconfigured environments
         setTimeout(() => {
           setLoading(false);
+          const normalizedEmail = signInEmail.trim().toLowerCase();
+          let name = signInEmail.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase());
+          let country = 'United States';
+          let phone = '+1 (555) 019-2831';
+
+          try {
+            const savedProfileStr = localStorage.getItem(`linkfluence_user_profile_${normalizedEmail}`);
+            if (savedProfileStr) {
+              const savedProfile = JSON.parse(savedProfileStr);
+              if (savedProfile && savedProfile.name) {
+                name = savedProfile.name;
+              }
+              if (savedProfile && savedProfile.country) {
+                country = savedProfile.country;
+              }
+              if (savedProfile && savedProfile.phone) {
+                phone = savedProfile.phone;
+              }
+            }
+          } catch (e) {}
+
           onSuccess({
-            name: signInEmail.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase()),
+            name,
             email: signInEmail,
-            country: 'United States',
-            phone: '+1 (555) 019-2831',
+            country,
+            phone,
           });
           onClose();
         }, 1000);
@@ -166,11 +203,32 @@ export default function AuthModal({ initialTab = 'signup', onSuccess, onClose }:
       setTimeout(() => {
         setLoading(false);
         // Simulate login for Marcus Thorne or Liam Harris or newly created
+        const normalizedEmail = signInEmail.trim().toLowerCase();
+        let name = signInEmail.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase());
+        let country = 'United States';
+        let phone = '+1 (555) 019-2831';
+
+        try {
+          const savedProfileStr = localStorage.getItem(`linkfluence_user_profile_${normalizedEmail}`);
+          if (savedProfileStr) {
+            const savedProfile = JSON.parse(savedProfileStr);
+            if (savedProfile && savedProfile.name) {
+              name = savedProfile.name;
+            }
+            if (savedProfile && savedProfile.country) {
+              country = savedProfile.country;
+            }
+            if (savedProfile && savedProfile.phone) {
+              phone = savedProfile.phone;
+            }
+          }
+        } catch (e) {}
+
         onSuccess({
-          name: signInEmail.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase()),
+          name,
           email: signInEmail,
-          country: 'United States',
-          phone: '+1 (555) 019-2831',
+          country,
+          phone,
         });
         onClose();
       }, 1000);

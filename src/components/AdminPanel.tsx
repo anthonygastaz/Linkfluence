@@ -42,7 +42,7 @@ interface AdminPanelProps {
 
 // Interfaces to mirror UserDashboard state shapes
 interface KYCData {
-  status: 'Unregistered' | 'Pending' | 'Approved';
+  status: 'Unregistered' | 'Pending' | 'Approved' | 'Rejected';
   fullName: string;
   documentType: string;
   documentNumber: string;
@@ -203,6 +203,18 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   useEffect(() => {
     initDefaultDatabase();
     loadRosterAndConfig();
+
+    const handleSyncEvent = () => {
+      loadRosterAndConfig();
+    };
+
+    window.addEventListener('linkfluence_data_updated', handleSyncEvent);
+    window.addEventListener('storage', handleSyncEvent);
+
+    return () => {
+      window.removeEventListener('linkfluence_data_updated', handleSyncEvent);
+      window.removeEventListener('storage', handleSyncEvent);
+    };
   }, []);
 
   const addLog = (action: string, priority: 'info' | 'warn' | 'success' = 'info') => {
@@ -741,7 +753,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       ...raw,
       kyc: {
         ...raw.kyc,
-        status: 'Unregistered' as const
+        status: 'Rejected' as const
       },
       verificationPassed: false
     };

@@ -689,10 +689,29 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
               </div>
               {!isMenuCollapsed && (
                 <div className="flex flex-col text-left truncate">
-                  <h4 className="text-sm font-bold text-black font-sans leading-none truncate w-32">{user.name}</h4>
-                  <span className="text-[10px] font-mono text-[#3CB371] font-bold mt-1 flex items-center gap-1 uppercase tracking-wider">
-                    <span className="w-1.5 h-1.5 bg-[#3CB371] rounded-full inline-block animate-pulse" /> Verified
-                  </span>
+                  <h4 className="text-sm font-bold text-black font-sans leading-none truncate w-32 flex items-center gap-1">
+                    <span>{user.name}</span>
+                    {kyc.status === 'Approved' && (
+                      <CheckCircle2 size={12} className="text-[#3CB371] shrink-0" title="KYC Approved" />
+                    )}
+                  </h4>
+                  {kyc.status === 'Approved' ? (
+                    <span className="text-[10px] font-mono text-[#3CB371] font-bold mt-1 flex items-center gap-1 uppercase tracking-wider">
+                      <span className="w-1.5 h-1.5 bg-[#3CB371] rounded-full inline-block" /> KYC Approved
+                    </span>
+                  ) : kyc.status === 'Pending' ? (
+                    <span className="text-[10px] font-mono text-amber-500 font-bold mt-1 flex items-center gap-1 uppercase tracking-wider animate-pulse">
+                      <span className="w-1.5 h-1.5 bg-amber-500 rounded-full inline-block" /> KYC Pending
+                    </span>
+                  ) : kyc.status === 'Rejected' ? (
+                    <span className="text-[10px] font-mono text-rose-500 font-bold mt-1 flex items-center gap-1 uppercase tracking-wider">
+                      <span className="w-1.5 h-1.5 bg-rose-500 rounded-full inline-block" /> KYC Rejected
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-mono text-gray-400 font-bold mt-1 flex items-center gap-1 uppercase tracking-wider">
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full inline-block" /> Unverified
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -826,7 +845,14 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white border border-gray-100/40 p-6 rounded-2xl shadow-xs">
               <div className="flex flex-col">
                 <span className="text-[#3CB371] text-xs font-bold uppercase tracking-widest font-mono">Affiliate Capital workspace</span>
-                <h2 className="text-xl sm:text-2xl font-bold font-sans text-black mt-1">Hello, {user.name}</h2>
+                <h2 className="text-xl sm:text-2xl font-bold font-sans text-black mt-1 flex items-center gap-2 flex-wrap">
+                  <span>Hello, {user.name}</span>
+                  {kyc.status === 'Approved' && (
+                    <span className="inline-flex items-center gap-1 bg-emerald-50 text-[#3CB371] text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-150 uppercase tracking-widest shadow-2xs font-mono">
+                      <CheckCircle2 size={11} className="text-[#3CB371] shrink-0" /> Verified Partner
+                    </span>
+                  )}
+                </h2>
                 <p className="text-gray-500 text-xs sm:text-sm mt-0.5">Track your passive affiliate yield and verify transaction payouts seamlessly.</p>
               </div>
               <div className="flex gap-2 w-full sm:w-auto">
@@ -923,14 +949,26 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
                     <span className={`text-[10px] sm:text-xs font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider border ${
                       kyc.status === 'Approved' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
                       kyc.status === 'Pending' ? 'bg-amber-50 text-amber-500 border-amber-100 animate-pulse' :
+                      kyc.status === 'Rejected' ? 'bg-rose-50 text-rose-600 border-rose-100 font-semibold' :
                       'bg-gray-50 text-gray-400 border-gray-100'
                     }`}>
                       {kyc.status}
                     </span>
                   </div>
 
-                  {kyc.status === 'Unregistered' ? (
+                  {kyc.status === 'Unregistered' || kyc.status === 'Rejected' ? (
                     <form onSubmit={handleKYCSubmit} className="flex flex-col gap-3">
+                      {kyc.status === 'Rejected' && (
+                        <div className="mb-2 p-3.5 bg-rose-50/70 border border-rose-100 rounded-xl text-left flex items-start gap-2.5 shadow-2xs">
+                          <AlertCircle size={16} className="text-rose-500 shrink-0 mt-0.5" />
+                          <div className="flex flex-col">
+                            <span className="text-xs font-bold text-rose-800 tracking-tight leading-none">KYC Verification Rejected</span>
+                            <p className="text-[10px] sm:text-[11px] text-rose-600 font-medium leading-relaxed mt-1">
+                              Your documents were analyzed by our compliance team and were unfortunately rejected. Please review your details and submit high-resolution document scans again below.
+                            </p>
+                          </div>
+                        </div>
+                      )}
                       <p className="text-xs text-gray-500 leading-relaxed mb-1 text-left">
                         Submit verification documents to verify legal affiliation, remove limits, and unlock rapid international withdrawal systems.
                       </p>

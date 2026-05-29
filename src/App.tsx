@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, HelpCircle, Check, Play, Sparkles, BookOpen, Clock, Activity, Menu, X, User } from 'lucide-react';
+import { ArrowRight, HelpCircle, Check, Play, Sparkles, BookOpen, Clock, Activity, Menu, X, User, CheckCircle2, XCircle } from 'lucide-react';
 import LogoIcon from './components/LogoIcon';
 import DashboardMockup from './components/DashboardMockup';
 import Modal from './components/Modal';
@@ -36,6 +36,17 @@ export default function App() {
   // Modal configurations
   const [activeModal, setActiveModal] = useState<'none' | 'onboarding' | 'plans' | 'marketplace' | 'help' | 'signup' | 'signin' | 'admin'>('none');
   const [currentUser, setCurrentUser] = useState<{ name: string; email: string; country: string; phone: string } | null>(null);
+
+  const getKycStatus = (email: string): 'Unregistered' | 'Pending' | 'Approved' | 'Rejected' => {
+    try {
+      const dataStr = localStorage.getItem(`linkfluence_user_data_${email}`);
+      if (dataStr) {
+        const data = JSON.parse(dataStr);
+        return data?.kyc?.status || 'Unregistered';
+      }
+    } catch (e) {}
+    return 'Unregistered';
+  };
   const [selectedPlanName, setSelectedPlanName] = useState<string>('Pro');
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -303,6 +314,7 @@ export default function App() {
     }
 
     setCurrentUser(updatedUserData);
+    window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email: normalizedEmail } }));
     triggerToast(`Welcome back, ${updatedUserData.name}! Secure session initiated successfully.`);
   };
 
@@ -378,7 +390,12 @@ export default function App() {
                   {currentUser.name.charAt(0).toUpperCase()}
                 </span>
                 <div className="hidden xs:flex flex-col text-left">
-                  <span className="text-xs font-bold text-black font-sans leading-none truncate max-w-[65px] sm:max-w-[120px]">{currentUser.name}</span>
+                  <span className="text-xs font-bold text-black font-sans leading-none truncate max-w-[65px] sm:max-w-[120px] flex items-center gap-1">
+                    <span className="truncate">{currentUser.name}</span>
+                    {getKycStatus(currentUser.email) === 'Approved' && (
+                      <CheckCircle2 size={12} className="text-[#3CB371] shrink-0" title="KYC Approved Badge" />
+                    )}
+                  </span>
                   <span className="text-[9px] font-mono font-semibold text-gray-400 capitalize mt-0.5 hidden sm:inline-block">{currentUser.country}</span>
                 </div>
                 <button
@@ -504,7 +521,12 @@ export default function App() {
                   {currentUser.name.charAt(0).toUpperCase()}
                 </span>
                 <div className="flex flex-col text-left">
-                  <span className="text-xs font-bold text-black font-sans leading-none">{currentUser.name}</span>
+                  <span className="text-xs font-bold text-black font-sans leading-none flex items-center gap-1">
+                    <span>{currentUser.name}</span>
+                    {getKycStatus(currentUser.email) === 'Approved' && (
+                      <CheckCircle2 size={11} className="text-[#3CB371] shrink-0" title="KYC Approved Badge" />
+                    )}
+                  </span>
                   <span className="text-[10px] font-mono font-semibold text-gray-400 capitalize">{currentUser.country}</span>
                 </div>
                 <button
@@ -590,7 +612,12 @@ export default function App() {
                       {currentUser.name.charAt(0).toUpperCase()}
                     </span>
                     <div className="flex flex-col text-left">
-                      <span className="text-sm font-bold text-black font-sans leading-none">{currentUser.name}</span>
+                      <span className="text-sm font-bold text-black font-sans leading-none flex items-center gap-1.5">
+                        <span>{currentUser.name}</span>
+                        {getKycStatus(currentUser.email) === 'Approved' && (
+                          <CheckCircle2 size={12} className="text-[#3CB371] shrink-0" title="KYC Approved Badge" />
+                        )}
+                      </span>
                       <span className="text-[11px] font-mono font-semibold text-gray-400 capitalize mt-1">{currentUser.country}</span>
                     </div>
                   </div>
