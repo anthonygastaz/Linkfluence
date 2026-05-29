@@ -90,6 +90,59 @@ export default function App() {
 
   // Auto restore sessions and sync profile details
   useEffect(() => {
+    const isFirstTime = !localStorage.getItem('linkfluence_system_initialized');
+
+    // Reconstruct/verify the roster with all saved profiles in local storage to prevent any missing users
+    const obsoleteMockEmails = ['harris.liam@linkfluence.io', 'chloe.s@linkfluence.com', 's.jenkins@affiliates.net', 'anthonygastaz@gmail.com'];
+    const localProfileEmails: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('linkfluence_user_profile_')) {
+        const email = key.substring('linkfluence_user_profile_'.length);
+        if (email) {
+          localProfileEmails.push(email);
+        }
+      }
+    }
+
+    const defaultSeed = isFirstTime ? ['graphicbullng@gmail.com'] : [];
+    let roster: string[] = [...defaultSeed];
+    const savedRoster = localStorage.getItem('linkfluence_users_roster');
+    if (savedRoster) {
+      try {
+        const parsed = JSON.parse(savedRoster);
+        if (Array.isArray(parsed)) {
+          const unique = new Set([...defaultSeed, ...parsed, ...localProfileEmails]);
+          obsoleteMockEmails.forEach(obs => unique.delete(obs));
+          roster = Array.from(unique);
+        }
+      } catch (e) {}
+    } else {
+      const unique = new Set([...defaultSeed, ...localProfileEmails]);
+      obsoleteMockEmails.forEach(obs => unique.delete(obs));
+      roster = Array.from(unique);
+    }
+    localStorage.setItem('linkfluence_users_roster', JSON.stringify(roster));
+
+    // Seed default graphicbullng details if first time
+    if (isFirstTime) {
+      if (!localStorage.getItem(`linkfluence_user_profile_graphicbullng@gmail.com`)) {
+        localStorage.setItem(`linkfluence_user_profile_graphicbullng@gmail.com`, JSON.stringify({ name: 'Graphic Bull', email: 'graphicbullng@gmail.com', country: 'United States', phone: '+1 (555) 019-2831' }));
+      }
+      if (!localStorage.getItem(`linkfluence_user_data_graphicbullng@gmail.com`)) {
+        localStorage.setItem(`linkfluence_user_data_graphicbullng@gmail.com`, JSON.stringify({
+          balance: 0.00,
+          totalProfit: 0.00,
+          totalWithdrawals: 0.00,
+          totalInvestments: 0.00,
+          activePlans: [],
+          kyc: { status: 'Unregistered', fullName: '', documentType: 'National ID Card', documentNumber: '', country: 'United States' },
+          transactions: []
+        }));
+      }
+      localStorage.setItem('linkfluence_system_initialized', 'true');
+    }
+
     const activeEmail = localStorage.getItem('linkfluence_active_user_email');
     if (activeEmail) {
       try {
@@ -212,11 +265,13 @@ export default function App() {
   };
 
   const handleAuthSuccess = (userData: { name: string; email: string; country: string; phone: string }) => {
-    localStorage.setItem('linkfluence_active_user_email', userData.email);
-    localStorage.setItem(`linkfluence_user_profile_${userData.email}`, JSON.stringify(userData));
+    const normalizedEmail = userData.email.trim().toLowerCase();
+    const updatedUserData = { ...userData, email: normalizedEmail };
+    localStorage.setItem('linkfluence_active_user_email', normalizedEmail);
+    localStorage.setItem(`linkfluence_user_profile_${normalizedEmail}`, JSON.stringify(updatedUserData));
     
     // Seed user account data if not present
-    const dataKey = `linkfluence_user_data_${userData.email}`;
+    const dataKey = `linkfluence_user_data_${normalizedEmail}`;
     if (!localStorage.getItem(dataKey)) {
       const defaultData = {
         balance: 0.00,
@@ -226,10 +281,10 @@ export default function App() {
         activePlans: [],
         kyc: { 
           status: 'Unregistered', 
-          fullName: userData.name, 
+          fullName: updatedUserData.name, 
           documentType: 'National ID Card', 
           documentNumber: '', 
-          country: userData.country || 'United States' 
+          country: updatedUserData.country || 'United States' 
         },
         transactions: []
       };
@@ -242,13 +297,13 @@ export default function App() {
     if (savedRoster) {
       try { roster = JSON.parse(savedRoster); } catch (e) {}
     }
-    if (!roster.includes(userData.email)) {
-      roster.push(userData.email);
+    if (!roster.includes(normalizedEmail)) {
+      roster.push(normalizedEmail);
       localStorage.setItem('linkfluence_users_roster', JSON.stringify(roster));
     }
 
-    setCurrentUser(userData);
-    triggerToast(`Welcome back, ${userData.name}! Secure session initiated successfully.`);
+    setCurrentUser(updatedUserData);
+    triggerToast(`Welcome back, ${updatedUserData.name}! Secure session initiated successfully.`);
   };
 
   const handleHelpQuery = (e: React.FormEvent) => {
@@ -301,7 +356,15 @@ export default function App() {
         <nav id="global-navbar" className="sticky top-0 w-full z-50 px-4 md:px-6 py-2 bg-white/95 backdrop-blur-md border-b border-gray-100 shadow-xs">
           <div className="max-w-[88rem] mx-auto flex items-center justify-between">
             {/* Left branding */}
-            <div className="flex items-center gap-1.5 sm:gap-2 cursor-pointer">
+            <div 
+              className="flex items-center gap-1.5 sm:gap-2 cursor-pointer hover:opacity-85 transition-opacity"
+              onClick={() => {
+                localStorage.removeItem('linkfluence_active_user_email');
+                setCurrentUser(null);
+                triggerToast("Returned to homepage.");
+              }}
+              title="Return to homepage"
+            >
               <LogoIcon className="text-[#3CB371] flex-shrink-0" size="22" />
               <span className="text-sm xs:text-base sm:text-2xl font-semibold tracking-tight text-black font-sans whitespace-normal leading-tight max-w-[160px] xs:max-w-[200px] sm:max-w-none sm:whitespace-nowrap">
                 Affiliate Associate Program
@@ -398,7 +461,14 @@ export default function App() {
         <div className="max-w-[88rem] mx-auto flex items-center justify-between">
           
           {/* Left branding */}
-          <div className="flex items-center gap-1.5 sm:gap-2 cursor-pointer" onClick={() => window.scrollTo({top: 0, behavior: 'smooth'})}>
+          <div 
+            className="flex items-center gap-1.5 sm:gap-2 cursor-pointer hover:opacity-85 transition-opacity" 
+            onClick={() => {
+              setActiveModal('none');
+              window.scrollTo({top: 0, behavior: 'smooth'});
+            }}
+            title="Return to homepage"
+          >
             <LogoIcon className="text-[#3CB371] hover:scale-105 transition-transform flex-shrink-0" size="22" />
             <span className="text-sm xs:text-base sm:text-2xl font-semibold tracking-tight text-black font-sans whitespace-normal leading-tight max-w-[160px] xs:max-w-[200px] sm:max-w-none sm:whitespace-nowrap">
               Affiliate Associate Program
@@ -439,6 +509,7 @@ export default function App() {
                 </div>
                 <button
                   onClick={() => {
+                    localStorage.removeItem('linkfluence_active_user_email');
                     setCurrentUser(null);
                     triggerToast("Signed out of your Affiliate Associate Program account session.");
                   }}
@@ -526,6 +597,7 @@ export default function App() {
                   <button
                     onClick={() => {
                       setMobileMenuOpen(false);
+                      localStorage.removeItem('linkfluence_active_user_email');
                       setCurrentUser(null);
                       triggerToast("Signed out of your Affiliate Associate Program account session.");
                     }}
@@ -1402,7 +1474,14 @@ export default function App() {
               
               {/* Brand brief column (Left) */}
               <div className="lg:col-span-5 flex flex-col gap-4 text-left">
-                <div className="flex items-center gap-2.5">
+                <div 
+                  className="flex items-center gap-2.5 cursor-pointer hover:opacity-85 transition-opacity"
+                  onClick={() => {
+                    setActiveModal('none');
+                    window.scrollTo({top: 0, behavior: 'smooth'});
+                  }}
+                  title="Return to homepage"
+                >
                   <LogoIcon className="text-[#3CB371]" size="28" />
                   <span className="text-xl font-bold text-black font-sans tracking-tight" style={{ letterSpacing: '-0.03em' }}>
                     Affiliate Associate Program

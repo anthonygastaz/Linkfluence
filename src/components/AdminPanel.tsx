@@ -162,6 +162,37 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     }
   ]);
 
+  // Custom confirmation modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    confirmText?: string;
+    danger?: boolean;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    confirmText: 'Confirm',
+    danger: false
+  });
+
+  const promptConfirm = (title: string, message: string, onConfirm: () => void, confirmText = 'Confirm', danger = false) => {
+    setConfirmModal({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+      },
+      confirmText,
+      danger
+    });
+  };
+
   // Administration action log
   const [adminSystemLogs, setAdminSystemLogs] = useState<Array<{id: string, date: string, action: string, priority: 'info' | 'warn' | 'success'}>>([
     { id: 'LOG-1', date: '2026-05-28 05:42', action: 'System Administrator logged in securely from port 3000 node telemetry.', priority: 'success' },
@@ -192,15 +223,31 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       localStorage.removeItem(`linkfluence_user_data_${email}`);
     });
 
-    // Seed/Load roster index starting with graphicbullng@gmail.com and keeping newly registered users
-    let emails = ['graphicbullng@gmail.com'];
+    // Seed/Load roster index dynamically or initialize for the first time
+    const isFirstTime = !localStorage.getItem('linkfluence_system_initialized');
+    
+    // Discover any dynamically added user profiles in localStorage and merge them
+    const localProfileEmails: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('linkfluence_user_profile_')) {
+        const email = key.substring('linkfluence_user_profile_'.length);
+        if (email) {
+          localProfileEmails.push(email);
+        }
+      }
+    }
+
+    const defaultSeed = isFirstTime ? ['graphicbullng@gmail.com'] : [];
+    let emails: string[] = [];
+
     const savedRoster = localStorage.getItem('linkfluence_users_roster');
     if (savedRoster) {
       try {
         const parsed = JSON.parse(savedRoster);
         if (Array.isArray(parsed)) {
           // Merge unique emails, discarding obsolete mock ones but preserving any others
-          const uniqueEmails = new Set(['graphicbullng@gmail.com', ...parsed]);
+          const uniqueEmails = new Set([...defaultSeed, ...parsed, ...localProfileEmails]);
           obsoleteMockEmails.forEach(obs => uniqueEmails.delete(obs));
           emails = Array.from(uniqueEmails);
         }
@@ -208,35 +255,40 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
         console.error("Error patching existing roster on startup", e);
       }
     } else {
-      localStorage.setItem('linkfluence_users_roster', JSON.stringify(emails));
+      const uniqueEmails = new Set([...defaultSeed, ...localProfileEmails]);
+      obsoleteMockEmails.forEach(obs => uniqueEmails.delete(obs));
+      emails = Array.from(uniqueEmails);
     }
     localStorage.setItem('linkfluence_users_roster', JSON.stringify(emails));
 
-    // 2. Seeding zeroed out clean records for graphicbullng@gmail.com
-    const defaultData: { [key: string]: { profile: any, data: UserState } } = {
-      'graphicbullng@gmail.com': {
-        profile: { name: 'Graphic Bull', email: 'graphicbullng@gmail.com', country: 'United States', phone: '+1 (555) 019-2831' },
-        data: {
-          balance: 0.00,
-          totalProfit: 0.00,
-          totalWithdrawals: 0.00,
-          totalInvestments: 0.00,
-          activePlans: [],
-          kyc: { status: 'Unregistered', fullName: '', documentType: 'National ID Card', documentNumber: '', country: 'United States' },
-          transactions: []
+    // 2. Seeding zeroed out clean records for graphicbullng@gmail.com if first time ever
+    if (isFirstTime) {
+      const defaultData: { [key: string]: { profile: any, data: UserState } } = {
+        'graphicbullng@gmail.com': {
+          profile: { name: 'Graphic Bull', email: 'graphicbullng@gmail.com', country: 'United States', phone: '+1 (555) 019-2831' },
+          data: {
+            balance: 0.00,
+            totalProfit: 0.00,
+            totalWithdrawals: 0.00,
+            totalInvestments: 0.00,
+            activePlans: [],
+            kyc: { status: 'Unregistered', fullName: '', documentType: 'National ID Card', documentNumber: '', country: 'United States' },
+            transactions: []
+          }
         }
-      }
-    };
+      };
 
-    // Store profiles and datas (overwriting only if not already initialized)
-    Object.keys(defaultData).forEach(email => {
-      if (!localStorage.getItem(`linkfluence_user_profile_${email}`)) {
-        localStorage.setItem(`linkfluence_user_profile_${email}`, JSON.stringify(defaultData[email].profile));
-      }
-      if (!localStorage.getItem(`linkfluence_user_data_${email}`)) {
-        localStorage.setItem(`linkfluence_user_data_${email}`, JSON.stringify(defaultData[email].data));
-      }
-    });
+      // Store profiles and datas if not already present
+      Object.keys(defaultData).forEach(email => {
+        if (!localStorage.getItem(`linkfluence_user_profile_${email}`)) {
+          localStorage.setItem(`linkfluence_user_profile_${email}`, JSON.stringify(defaultData[email].profile));
+        }
+        if (!localStorage.getItem(`linkfluence_user_data_${email}`)) {
+          localStorage.setItem(`linkfluence_user_data_${email}`, JSON.stringify(defaultData[email].data));
+        }
+      });
+      localStorage.setItem('linkfluence_system_initialized', 'true');
+    }
 
     // 3. System Investment Pools configuration
     const defaultPlans = [
@@ -262,8 +314,10 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       localStorage.setItem('linkfluence_payment_methods', JSON.stringify(defaultGateways));
     }
 
-    // Notify any active listeners of system data load / updates
-    window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email: 'graphicbullng@gmail.com' } }));
+    // Notify any active listeners of system data load / updates dynamically
+    emails.forEach(email => {
+      window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email } }));
+    });
   };
 
   const loadRosterAndConfig = () => {
@@ -275,6 +329,8 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
         setRoster(parsed);
         if (parsed.length > 0) {
           setSelectedUserEmail(parsed[0]);
+        } else {
+          setSelectedUserEmail('');
         }
       } catch (e){}
     }
@@ -377,6 +433,10 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
           setRoster(parsed);
         }
       } catch (e) {}
+    } else {
+      const parsed = [email];
+      localStorage.setItem('linkfluence_users_roster', JSON.stringify(parsed));
+      setRoster(parsed);
     }
 
     // Seeding/Updating notification event to immediately synchronize user dashboards
@@ -396,7 +456,8 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       return;
     }
 
-    const testUserExist = localStorage.getItem(`linkfluence_user_profile_${formEmail.trim()}`);
+    const normalizedEmail = formEmail.trim().toLowerCase();
+    const testUserExist = localStorage.getItem(`linkfluence_user_profile_${normalizedEmail}`);
     if (testUserExist) {
       triggerToast('A user account with this email already exists.');
       return;
@@ -404,7 +465,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
     const newRecord = {
       name: formName,
-      email: formEmail,
+      email: normalizedEmail,
       country: formCountry,
       phone: formPhone || '+1 (555) 012-3456',
       balance: parseFloat(formBalance) || 0,
@@ -434,7 +495,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       ]
     };
 
-    saveUserRecord(formEmail.trim(), newRecord);
+    saveUserRecord(normalizedEmail, newRecord);
     triggerToast(`Succeeded! Account created for ${formName}.`);
     addLog(`Created new partner account: ${formName} (${formEmail})`, 'success');
     
@@ -514,24 +575,69 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   };
 
   const handleDeleteUser = (email: string) => {
-    if (window.confirm(`Are you sure you want to permanently delete user: ${email}? This collapses all records immediately.`)) {
-      localStorage.removeItem(`linkfluence_user_profile_${email}`);
-      localStorage.removeItem(`linkfluence_user_data_${email}`);
-      
-      let savedRoster = localStorage.getItem('linkfluence_users_roster');
-      if (savedRoster) {
-        try {
-          const parsed = JSON.parse(savedRoster);
-          const i = parsed.indexOf(email);
-          if (i !== -1) parsed.splice(i, 1);
-          localStorage.setItem('linkfluence_users_roster', JSON.stringify(parsed));
-        } catch (e) {}
-      }
-      
-      triggerToast(`Account ${email} deleted successfully.`);
-      addLog(`Deleted customer account and ledger logs for ${email}`, 'warn');
-      loadRosterAndConfig();
-    }
+    promptConfirm(
+      "Delete Partner Account",
+      `Are you sure you want to permanently delete user account: ${email}? This collapses all records and database logs immediately.`,
+      () => {
+        localStorage.removeItem(`linkfluence_user_profile_${email}`);
+        localStorage.removeItem(`linkfluence_user_data_${email}`);
+        
+        let savedRoster = localStorage.getItem('linkfluence_users_roster');
+        if (savedRoster) {
+          try {
+            const parsed = JSON.parse(savedRoster);
+            const i = parsed.indexOf(email);
+            if (i !== -1) parsed.splice(i, 1);
+            localStorage.setItem('linkfluence_users_roster', JSON.stringify(parsed));
+          } catch (e) {}
+        }
+        
+        triggerToast(`Account ${email} deleted successfully.`);
+        addLog(`Deleted customer account and ledger logs for ${email}`, 'warn');
+        loadRosterAndConfig();
+      },
+      "Delete Account",
+      true
+    );
+  };
+
+  const handleDeleteAllUsers = () => {
+    promptConfirm(
+      "Delete All Accounts",
+      "Are you absolutely sure you want to permanently delete all registered user accounts? This will wipe user profiles, balances, transaction logs, and log out any active sessions. Custom investment plans and available payment options will remain completely untouched. This action is irreversible!",
+      () => {
+        // Collect all keys to delete safely using Object.keys to prevent loop indexing side-effects
+        const keysToRemove = Object.keys(localStorage).filter(key => 
+          key.startsWith('linkfluence_user_profile_') || 
+          key.startsWith('linkfluence_user_data_')
+        );
+        
+        // Remove all user-specific profiles and details
+        keysToRemove.forEach(key => {
+          localStorage.removeItem(key);
+        });
+        
+        // Clear the roster list
+        localStorage.setItem('linkfluence_users_roster', JSON.stringify([]));
+        
+        // Sign out any active user session
+        localStorage.removeItem('linkfluence_active_user_email');
+        onUpdateCurrentUser(null);
+        
+        // Keep system initialized flag as true so default seed doesn't re-execute on page load
+        localStorage.setItem('linkfluence_system_initialized', 'true');
+        
+        triggerToast("Succeeded! All user accounts have been permanently deleted.");
+        addLog("Deleted all registered partner accounts", "warn");
+        
+        // Dispatch update events to other tabs/windows if any
+        window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email: '*' } }));
+        
+        loadRosterAndConfig();
+      },
+      "Delete All Accounts",
+      true
+    );
   };
 
   // Action 3: Debit/Credit Balance or Profits
@@ -693,13 +799,19 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   };
 
   const handleDeletePlanClick = (id: string, name: string) => {
-    if (window.confirm(`Are you sure you want to delete investment plan ${name}?`)) {
-      const remaining = plans.filter(p => p.id !== id);
-      localStorage.setItem('linkfluence_investment_plans', JSON.stringify(remaining));
-      setPlans(remaining);
-      addLog(`Deleted investment pool schema config: ${name}`, 'warn');
-      triggerToast(`Plan deleted.`);
-    }
+    promptConfirm(
+      "Delete Investment Plan",
+      `Are you sure you want to permanently delete the investment plan '${name}'? This removes it from pool registration lists for clients.`,
+      () => {
+        const remaining = plans.filter(p => p.id !== id);
+        localStorage.setItem('linkfluence_investment_plans', JSON.stringify(remaining));
+        setPlans(remaining);
+        addLog(`Deleted investment pool schema config: ${name}`, 'warn');
+        triggerToast(`Plan deleted.`);
+      },
+      "Delete Plan",
+      true
+    );
   };
 
   // Action 6: Manage Gateways Methods
@@ -730,7 +842,9 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     setPaymentGateways(updatedGateways);
     triggerToast(`Payment method rules updated.`);
     addLog(`Tuned dynamic transaction routing rules for gateway ${gatewayForm.name}`, 'info');
-    window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email: 'graphicbullng@gmail.com' } }));
+    roster.forEach(email => {
+      window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email } }));
+    });
 
     setIsEditingGateway(false);
     setEditingGatewayId(null);
@@ -749,18 +863,28 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     localStorage.setItem('linkfluence_payment_methods', JSON.stringify(updated));
     setPaymentGateways(updated);
     triggerToast(`Payment gateway status updated.`);
-    window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email: 'graphicbullng@gmail.com' } }));
+    roster.forEach(email => {
+      window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email } }));
+    });
   };
 
   const handleDeleteGatewayClick = (id: string, name: string) => {
-    if (window.confirm(`Are you sure you want to delete the payment option "${name}"?`)) {
-      const remaining = paymentGateways.filter(g => g.id !== id);
-      localStorage.setItem('linkfluence_payment_methods', JSON.stringify(remaining));
-      setPaymentGateways(remaining);
-      addLog(`Deleted payment option configuration: ${name}`, 'warn');
-      triggerToast(`Payment option deleted.`);
-      window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email: 'graphicbullng@gmail.com' } }));
-    }
+    promptConfirm(
+      "Delete Payment Method",
+      `Are you sure you want to permanently delete the payment option "${name}"? Active invoices mapped here will fall back or route to next priority gateway.`,
+      () => {
+        const remaining = paymentGateways.filter(g => g.id !== id);
+        localStorage.setItem('linkfluence_payment_methods', JSON.stringify(remaining));
+        setPaymentGateways(remaining);
+        addLog(`Deleted payment option configuration: ${name}`, 'warn');
+        triggerToast(`Payment option deleted.`);
+        roster.forEach(email => {
+          window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email } }));
+        });
+      },
+      "Delete Method",
+      true
+    );
   };
 
   // Action 7: Approve / Deny Withdrawal Requests
@@ -956,11 +1080,19 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
           {/* Header & Logo Section */}
           <div className="flex flex-col items-center gap-3 text-center">
-            <div className="p-3 bg-rose-50 rounded-2xl border border-rose-100/60 shadow-xs inline-flex items-center justify-center">
+            <div 
+              className="p-3 bg-rose-50 hover:bg-rose-100 rounded-2xl border border-rose-100/60 shadow-xs inline-flex items-center justify-center cursor-pointer transition-all duration-200"
+              onClick={onClose}
+              title="Return to homepage"
+            >
               <LogoIcon className="text-rose-500 transform hover:rotate-6 transition-transform duration-300" size="38" />
             </div>
             
-            <div className="flex flex-col gap-1 mt-1">
+            <div 
+              className="flex flex-col gap-1 mt-1 cursor-pointer hover:opacity-85 transition-opacity"
+              onClick={onClose}
+              title="Return to homepage"
+            >
               <div className="flex items-center justify-center gap-1.5">
                 <span className="text-xl font-bold tracking-tight text-black font-sans">Affiliate Associate Program</span>
                 <span className="bg-rose-50 text-rose-600 border border-rose-100/80 text-[10px] uppercase font-mono px-2 py-0.5 rounded-full font-bold">
@@ -991,7 +1123,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                 <input
                   type="text"
                   required
-                  placeholder="Username (e.g. affiliateassociateprogram)"
+                  placeholder="Enter username"
                   className="w-full border border-gray-150 rounded-xl pl-11 pr-4 py-3 text-xs bg-gray-50/30 hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-rose-500 text-black transition-all font-sans"
                   value={adminUsername}
                   onChange={e => setAdminUsername(e.target.value)}
@@ -1002,7 +1134,6 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
             <div className="flex flex-col gap-1.5 text-left">
               <div className="flex justify-between items-center">
                 <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500 font-sans">Authentication Password</label>
-                <span className="font-mono text-[9px] bg-gray-150/50 px-1.5 py-0.5 rounded text-gray-500">Lamba1###</span>
               </div>
               <div className="relative flex items-center">
                 <span className="absolute left-3.5 text-gray-400">
@@ -1027,12 +1158,6 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
               <span>Acquire Security Token</span>
             </button>
           </form>
-
-          {/* Root credentials indicator */}
-          <div className="bg-rose-50 uppercase tracking-wide border border-rose-100/30 p-3 rounded-xl text-[10px] text-rose-500 font-mono flex items-center justify-center gap-1.5 font-bold">
-            <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping" />
-            <span>Root Credentials: affiliateassociateprogram / Lamba1###</span>
-          </div>
 
           {/* Quick exit option */}
           <button
@@ -1253,21 +1378,32 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
               <p className="text-gray-400 text-xs">Review total users registered in dynamic database, deploy adjustments, edit, or delete credentials.</p>
             </div>
             
-            <button
-              onClick={() => {
-                setFormName('');
-                setFormEmail('');
-                setFormPhone('');
-                setFormBalance('0');
-                setFormProfit('0');
-                setFormKycStatus('Unregistered');
-                setIsCreatingUser(true);
-              }}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center gap-1 cursor-pointer select-none"
-            >
-              <PlusCircle size={15} />
-              <span>Create Partner Account</span>
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  setFormName('');
+                  setFormEmail('');
+                  setFormPhone('');
+                  setFormBalance('0');
+                  setFormProfit('0');
+                  setFormKycStatus('Unregistered');
+                  setIsCreatingUser(true);
+                }}
+                className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center gap-1.5 transition-all duration-150 cursor-pointer select-none shadow-xs active:scale-95"
+              >
+                <PlusCircle size={15} />
+                <span>Create Partner Account</span>
+              </button>
+              
+              <button
+                onClick={handleDeleteAllUsers}
+                className="border border-rose-200 bg-rose-50/25 hover:bg-rose-50 text-rose-600 hover:text-rose-700 text-xs font-bold py-2.5 px-4 rounded-xl flex items-center gap-1.5 transition-all duration-150 cursor-pointer select-none active:scale-95 shadow-2xs"
+                title="Delete all registered partner accounts from database"
+              >
+                <Trash2 size={13.5} className="text-rose-500" />
+                <span>Delete All Accounts</span>
+              </button>
+            </div>
           </div>
 
           {/* Create User Form Popup Modal Overlay */}
@@ -1450,66 +1586,78 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {roster.map(e => {
-                  const u = getUserRecord(e);
-                  return (
-                    <tr key={e} className="hover:bg-gray-50/50 transition duration-150">
-                      <td className="py-4.5 px-4.5">
-                        <div className="flex flex-col">
-                          <span className="font-extrabold text-black font-sans text-sm">{u.name}</span>
-                          <span className="text-[10.5px] text-gray-400 font-mono mt-0.5">{u.email}</span>
-                          <span className="text-[10px] text-indigo-400 font-mono leading-none mt-1">{u.phone}</span>
-                        </div>
-                      </td>
-                      <td className="py-4.5 px-4.5 font-semibold text-gray-700">
-                        <span className="flex items-center gap-1">
-                          <Globe size={12} className="text-gray-400" />
-                          <span>{u.country}</span>
-                        </span>
-                      </td>
-                      <td className="py-4.5 px-4 font-mono">
-                        <span className="text-sm font-extrabold text-[#111111]">${u.balance.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
-                      </td>
-                      <td className="py-4.5 px-4 font-mono">
-                        <span className="text-sm font-semibold text-[#111111]">${(u.totalInvestments || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
-                      </td>
-                      <td className="py-4.5 px-4 font-mono">
-                        <span className="text-sm font-extrabold text-emerald-500">${u.totalProfit.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
-                      </td>
-                      <td className="py-4.5 px-4">
-                        <span className={`inline-flex items-center gap-1 text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full ${
-                          u.kyc.status === 'Approved' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
-                          u.kyc.status === 'Pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-gray-150 text-gray-500'
-                        }`}>
-                          {u.kyc.status}
-                        </span>
-                      </td>
-                      <td className="py-4.5 px-4.5 text-right flex items-center justify-end gap-1.5 mt-2">
-                        <button
-                          title="Debit/Credit Funds Ledger"
-                          onClick={() => handleTriggerAdjustment(e)}
-                          className="bg-amber-50 hover:bg-amber-100 text-amber-600 p-1.5 px-2 rounded-lg font-bold border border-amber-100 cursor-pointer flex items-center gap-1 text-[10.5px]"
-                        >
-                          <Coins size={12} /> Adjust
-                        </button>
-                        <button
-                          title="Modify Account parameters"
-                          onClick={() => handleTriggerEditUser(e)}
-                          className="bg-blue-50 hover:bg-blue-100 text-blue-600 p-1.5 rounded-lg border border-blue-100 cursor-pointer"
-                        >
-                          <Edit2 size={12} />
-                        </button>
-                        <button
-                          title="Irreversibly delete user profile"
-                          onClick={() => handleDeleteUser(e)}
-                          className="bg-rose-50 hover:bg-rose-100 text-rose-500 p-1.5 rounded-lg border border-rose-100 cursor-pointer"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {roster.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 px-6 text-center text-gray-400 font-sans">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <Users size={32} className="text-gray-300" />
+                        <p className="font-bold text-gray-500">No partner accounts registered yet.</p>
+                        <p className="text-[11px] text-gray-400 max-w-xs mt-0.5">The customer database is empty. You can register new partner accounts using the "Create Partner Account" button above.</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  roster.map(e => {
+                    const u = getUserRecord(e);
+                    return (
+                      <tr key={e} className="hover:bg-gray-50/50 transition duration-150">
+                        <td className="py-4.5 px-4.5">
+                          <div className="flex flex-col">
+                            <span className="font-extrabold text-black font-sans text-sm">{u.name}</span>
+                            <span className="text-[10.5px] text-gray-400 font-mono mt-0.5">{u.email}</span>
+                            <span className="text-[10px] text-indigo-400 font-mono leading-none mt-1">{u.phone}</span>
+                          </div>
+                        </td>
+                        <td className="py-4.5 px-4.5 font-semibold text-gray-700">
+                          <span className="flex items-center gap-1">
+                            <Globe size={12} className="text-gray-400" />
+                            <span>{u.country}</span>
+                          </span>
+                        </td>
+                        <td className="py-4.5 px-4 font-mono">
+                          <span className="text-sm font-extrabold text-[#111111]">${u.balance.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                        </td>
+                        <td className="py-4.5 px-4 font-mono">
+                          <span className="text-sm font-semibold text-[#111111]">${(u.totalInvestments || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                        </td>
+                        <td className="py-4.5 px-4 font-mono">
+                          <span className="text-sm font-extrabold text-emerald-500">${u.totalProfit.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                        </td>
+                        <td className="py-4.5 px-4">
+                          <span className={`inline-flex items-center gap-1 text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full ${
+                            u.kyc.status === 'Approved' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                            u.kyc.status === 'Pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-gray-150 text-gray-500'
+                          }`}>
+                            {u.kyc.status}
+                          </span>
+                        </td>
+                        <td className="py-4.5 px-4.5 text-right flex items-center justify-end gap-1.5 mt-2">
+                          <button
+                            title="Debit/Credit Funds Ledger"
+                            onClick={() => handleTriggerAdjustment(e)}
+                            className="bg-amber-50 hover:bg-amber-100 text-amber-600 p-1.5 px-2 rounded-lg font-bold border border-amber-100 cursor-pointer flex items-center gap-1 text-[10.5px]"
+                          >
+                            <Coins size={12} /> Adjust
+                          </button>
+                          <button
+                            title="Modify Account parameters"
+                            onClick={() => handleTriggerEditUser(e)}
+                            className="bg-blue-50 hover:bg-blue-100 text-blue-600 p-1.5 rounded-lg border border-blue-100 cursor-pointer"
+                          >
+                            <Edit2 size={12} />
+                          </button>
+                          <button
+                            title="Irreversibly delete user profile"
+                            onClick={() => handleDeleteUser(e)}
+                            className="bg-rose-50 hover:bg-rose-100 text-rose-500 p-1.5 rounded-lg border border-rose-100 cursor-pointer"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -2140,8 +2288,44 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
           <ArrowRight size={13} className="rotate-180" />
           <span>Exit Administrative Console</span>
         </button>
-      </div>
+      {/* Custom Confirmation Modal System */}
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 z-55 flex items-center justify-center p-4 bg-stone-950/70 backdrop-blur-[2px] select-none animate-[fadeIn_0.15s_ease-out]">
+          <div className="absolute inset-0" onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}></div>
+          <div className="relative z-60 w-full max-w-md bg-white border border-gray-150 p-6 rounded-3xl flex flex-col gap-4 shadow-2xl animate-[scaleIn_0.15s_ease-out] text-left">
+            <div className="flex items-start gap-4">
+              <div className={`p-2.5 rounded-2xl shrink-0 ${confirmModal.danger ? 'bg-rose-50 text-rose-500 border border-rose-100' : 'bg-amber-50 text-amber-500 border border-amber-100'}`}>
+                <AlertTriangle size={20} />
+              </div>
+              <div className="flex flex-col gap-1">
+                <h3 className="text-sm font-bold text-black uppercase tracking-wider font-mono">{confirmModal.title}</h3>
+                <p className="text-gray-500 font-sans text-xs leading-relaxed mt-1.5">{confirmModal.message}</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center justify-end gap-2 border-t border-gray-100 pt-3.5 mt-1.5">
+              <button
+                type="button"
+                onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                className="px-4 py-2 border border-gray-200 hover:border-gray-350 bg-white text-gray-500 hover:text-gray-700 text-xs font-bold rounded-xl transition cursor-pointer font-sans"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmModal.onConfirm}
+                className={`px-4 py-2 text-white text-xs font-bold rounded-xl transition cursor-pointer font-sans shadow-md ${
+                  confirmModal.danger ? 'bg-rose-500 hover:bg-rose-600 shadow-rose-500/10' : 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/10'
+                }`}
+              >
+                {confirmModal.confirmText || 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
+      </div>
     </div>
   );
 }
