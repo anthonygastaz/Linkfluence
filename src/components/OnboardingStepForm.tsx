@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ArrowRight, Sparkles, CheckCircle, ShieldCheck, Mail, Users, ArrowUpRight } from 'lucide-react';
 
 interface OnboardingStepFormProps {
-  onSuccess: (planName: string) => void;
+  onSuccess: (planName: string, userDetails?: { name: string; email: string }) => void;
   onClose: () => void;
 }
 
@@ -276,7 +276,7 @@ export default function OnboardingStepForm({ onSuccess, onClose }: OnboardingSte
           <button
             type="button"
             onClick={() => {
-              onSuccess('Pro');
+              onSuccess('Pro', { name: formData.name, email: formData.email });
               onClose();
             }}
             className="w-full bg-black hover:bg-gray-800 text-white py-3.5 rounded-full font-semibold transition-all duration-200 text-center flex items-center justify-center gap-1.5"

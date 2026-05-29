@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Mail, Globe, Phone, Lock, Eye, EyeOff, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { User, Mail, Lock, Eye, EyeOff, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { supabaseService } from '../lib/supabaseService';
 
@@ -56,10 +56,6 @@ export default function AuthModal({ initialTab = 'signup', onSuccess, onClose }:
     }
     if (!email.trim() || !email.includes('@')) {
       setErrorText('Please enter a valid email address.');
-      return;
-    }
-    if (!phone.trim()) {
-      setErrorText('Please enter your phone number.');
       return;
     }
     if (password.length < 6) {
@@ -272,49 +268,6 @@ export default function AuthModal({ initialTab = 'signup', onSuccess, onClose }:
                 onChange={e => setEmail(e.target.value)}
               />
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            
-            {/* Country Dropdown */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-gray-500">Country</label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
-                  <Globe size={16} />
-                </span>
-                <select
-                  className="w-full border border-gray-150 rounded-xl pl-10 pr-4 py-3 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[#3CB371] text-black appearance-none"
-                  value={country}
-                  onChange={e => setCountry(e.target.value)}
-                >
-                  {COUNTRIES.map(c => (
-                    <option key={c.code} value={c.name}>
-                      {c.name} ({c.dial})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Phone Number */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-gray-500">Phone Number</label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
-                  <Phone size={16} />
-                </span>
-                <input
-                  type="tel"
-                  required
-                  placeholder="+1 (555) 019-2831"
-                  className="w-full border border-gray-150 rounded-xl pl-10 pr-4 py-3 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[#3CB371] text-black"
-                  value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                />
-              </div>
-            </div>
-
           </div>
 
           {/* Secure Password */}

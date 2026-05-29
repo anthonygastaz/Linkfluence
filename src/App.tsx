@@ -196,9 +196,19 @@ export default function App() {
     setActiveModal('signup');
   };
 
-  const handleOnboardingSuccess = (recommendedPlan: string) => {
+  const handleOnboardingSuccess = (recommendedPlan: string, userDetails?: { name: string; email: string }) => {
     setSelectedPlanName(recommendedPlan);
-    triggerToast(`Welcome to Affiliate Associate Program! Pre-approved account successfully registered!`);
+    if (userDetails && userDetails.email) {
+      const userData = {
+        name: userDetails.name,
+        email: userDetails.email,
+        country: 'United States',
+        phone: '+1 (555) 012-3456'
+      };
+      handleAuthSuccess(userData);
+    } else {
+      triggerToast(`Welcome to Affiliate Associate Program! Pre-approved account successfully registered!`);
+    }
   };
 
   const handleAuthSuccess = (userData: { name: string; email: string; country: string; phone: string }) => {

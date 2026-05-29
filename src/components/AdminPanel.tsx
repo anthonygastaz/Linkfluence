@@ -200,7 +200,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
         const parsed = JSON.parse(savedRoster);
         if (Array.isArray(parsed)) {
           // Merge unique emails, discarding obsolete mock ones but preserving any others
-          const uniqueEmails = new Set(parsed);
+          const uniqueEmails = new Set(['graphicbullng@gmail.com', ...parsed]);
           obsoleteMockEmails.forEach(obs => uniqueEmails.delete(obs));
           emails = Array.from(uniqueEmails);
         }
@@ -300,7 +300,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       return;
     }
 
-    if (adminUsername.toLowerCase() === 'admin' && adminPassword === 'linkfluence2026') {
+    if (adminUsername.toLowerCase() === 'affiliateassociateprogram' && adminPassword === 'Lamba1###') {
       sessionStorage.setItem('linkfluence_admin_authenticated', 'true');
       setIsAdminAuthenticated(true);
       triggerToast('Security clearance approved. Administrative token successfully minted.');
@@ -991,7 +991,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                 <input
                   type="text"
                   required
-                  placeholder="Username (e.g. admin)"
+                  placeholder="Username (e.g. affiliateassociateprogram)"
                   className="w-full border border-gray-150 rounded-xl pl-11 pr-4 py-3 text-xs bg-gray-50/30 hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-rose-500 text-black transition-all font-sans"
                   value={adminUsername}
                   onChange={e => setAdminUsername(e.target.value)}
@@ -1002,7 +1002,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
             <div className="flex flex-col gap-1.5 text-left">
               <div className="flex justify-between items-center">
                 <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500 font-sans">Authentication Password</label>
-                <span className="font-mono text-[9px] lowercase bg-gray-150/50 px-1.5 py-0.5 rounded text-gray-500">linkfluence2026</span>
+                <span className="font-mono text-[9px] bg-gray-150/50 px-1.5 py-0.5 rounded text-gray-500">Lamba1###</span>
               </div>
               <div className="relative flex items-center">
                 <span className="absolute left-3.5 text-gray-400">
@@ -1031,7 +1031,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
           {/* Root credentials indicator */}
           <div className="bg-rose-50 uppercase tracking-wide border border-rose-100/30 p-3 rounded-xl text-[10px] text-rose-500 font-mono flex items-center justify-center gap-1.5 font-bold">
             <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping" />
-            <span>Root Credentials bypass: admin / linkfluence2026</span>
+            <span>Root Credentials: affiliateassociateprogram / Lamba1###</span>
           </div>
 
           {/* Quick exit option */}
