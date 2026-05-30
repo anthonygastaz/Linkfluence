@@ -59,7 +59,7 @@ interface Transaction {
   methodOrPlan: string;
   destinationOrDetail: string;
   date: string;
-  status: 'Completed' | 'Pending' | 'Failed';
+  status: 'Completed' | 'Pending' | 'Failed' | 'Approved' | 'failed';
   reference: string;
 }
 
@@ -988,7 +988,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     const raw = getUserRecord(userEmail);
     const updatedTxList = raw.transactions.map((tx: Transaction) => {
       if (tx.id === txId) {
-        return { ...tx, status: 'Completed' as const };
+        return { ...tx, status: 'Approved' as const };
       }
       return tx;
     });
@@ -1014,7 +1014,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     const raw = getUserRecord(userEmail);
     const updatedTxList = raw.transactions.map((tx: Transaction) => {
       if (tx.id === txId) {
-        return { ...tx, status: 'Failed' as const };
+        return { ...tx, status: 'failed' as const };
       }
       return tx;
     });

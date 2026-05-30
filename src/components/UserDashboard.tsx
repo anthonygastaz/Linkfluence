@@ -42,7 +42,7 @@ interface Transaction {
   methodOrPlan: string;
   destinationOrDetail: string;
   date: string;
-  status: 'Completed' | 'Pending' | 'Failed';
+  status: 'Completed' | 'Pending' | 'Failed' | 'Approved' | 'failed';
   reference: string;
 }
 
@@ -618,9 +618,11 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
   // Dynamic status styling
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
-      case 'Completed': return 'bg-emerald-50 text-emerald-600 border-emerald-100';
+      case 'Completed':
+      case 'Approved': return 'bg-emerald-50 text-emerald-600 border-emerald-100';
       case 'Pending': return 'bg-amber-50 text-amber-600 border-amber-150 animate-pulse';
-      case 'Failed': return 'bg-rose-50 text-rose-600 border-rose-100';
+      case 'Failed':
+      case 'failed': return 'bg-rose-50 text-rose-600 border-rose-100';
       default: return 'bg-gray-50 text-gray-600 border-gray-100';
     }
   };
