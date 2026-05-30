@@ -8,6 +8,7 @@ import MarketplaceSandbox from './components/MarketplaceSandbox';
 import AuthModal from './components/AuthModal';
 import UserDashboard from './components/UserDashboard';
 import AdminPanel from './components/AdminPanel';
+import { syncFromGlobalStorage } from './lib/sync';
 
 // Hero Brands list
 const HERO_BRANDS = [
@@ -101,70 +102,77 @@ export default function App() {
 
   // Auto restore sessions and sync profile details
   useEffect(() => {
-    const isFirstTime = !localStorage.getItem('linkfluence_system_initialized');
+    const initializeApp = async () => {
+      // First, fetch the global registry from server storage to ensure newest registrations are loaded
+      await syncFromGlobalStorage();
 
-    // Reconstruct/verify the roster with all saved profiles in local storage to prevent any missing users
-    const obsoleteMockEmails = ['harris.liam@linkfluence.io', 'chloe.s@linkfluence.com', 's.jenkins@affiliates.net', 'anthonygastaz@gmail.com'];
-    const localProfileEmails: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith('linkfluence_user_profile_')) {
-        const email = key.substring('linkfluence_user_profile_'.length);
-        if (email) {
-          localProfileEmails.push(email);
+      const isFirstTime = !localStorage.getItem('linkfluence_system_initialized');
+
+      // Reconstruct/verify the roster with all saved profiles in local storage to prevent any missing users
+      const obsoleteMockEmails = ['harris.liam@linkfluence.io', 'chloe.s@linkfluence.com', 's.jenkins@affiliates.net', 'anthonygastaz@gmail.com'];
+      const localProfileEmails: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('linkfluence_user_profile_')) {
+          const email = key.substring('linkfluence_user_profile_'.length);
+          if (email) {
+            localProfileEmails.push(email);
+          }
         }
       }
-    }
 
-    const defaultSeed = isFirstTime ? ['graphicbullng@gmail.com'] : [];
-    let roster: string[] = [...defaultSeed];
-    const savedRoster = localStorage.getItem('linkfluence_users_roster');
-    if (savedRoster) {
-      try {
-        const parsed = JSON.parse(savedRoster);
-        if (Array.isArray(parsed)) {
-          const unique = new Set([...defaultSeed, ...parsed, ...localProfileEmails]);
-          obsoleteMockEmails.forEach(obs => unique.delete(obs));
-          roster = Array.from(unique);
+      const defaultSeed = isFirstTime ? ['graphicbullng@gmail.com'] : [];
+      let roster: string[] = [...defaultSeed];
+      const savedRoster = localStorage.getItem('linkfluence_users_roster');
+      if (savedRoster) {
+        try {
+          const parsed = JSON.parse(savedRoster);
+          if (Array.isArray(parsed)) {
+            const unique = new Set([...defaultSeed, ...parsed, ...localProfileEmails]);
+            obsoleteMockEmails.forEach(obs => unique.delete(obs));
+            roster = Array.from(unique);
+          }
+        } catch (e) {}
+      } else {
+        const unique = new Set([...defaultSeed, ...localProfileEmails]);
+        obsoleteMockEmails.forEach(obs => unique.delete(obs));
+        roster = Array.from(unique);
+      }
+      localStorage.setItem('linkfluence_users_roster', JSON.stringify(roster));
+
+      // Seed default graphicbullng details if first time
+      if (isFirstTime) {
+        if (!localStorage.getItem(`linkfluence_user_profile_graphicbullng@gmail.com`)) {
+          localStorage.setItem(`linkfluence_user_profile_graphicbullng@gmail.com`, JSON.stringify({ name: 'Graphic Bull', email: 'graphicbullng@gmail.com', country: 'United States', phone: '+1 (555) 019-2831' }));
         }
-      } catch (e) {}
-    } else {
-      const unique = new Set([...defaultSeed, ...localProfileEmails]);
-      obsoleteMockEmails.forEach(obs => unique.delete(obs));
-      roster = Array.from(unique);
-    }
-    localStorage.setItem('linkfluence_users_roster', JSON.stringify(roster));
-
-    // Seed default graphicbullng details if first time
-    if (isFirstTime) {
-      if (!localStorage.getItem(`linkfluence_user_profile_graphicbullng@gmail.com`)) {
-        localStorage.setItem(`linkfluence_user_profile_graphicbullng@gmail.com`, JSON.stringify({ name: 'Graphic Bull', email: 'graphicbullng@gmail.com', country: 'United States', phone: '+1 (555) 019-2831' }));
-      }
-      if (!localStorage.getItem(`linkfluence_user_data_graphicbullng@gmail.com`)) {
-        localStorage.setItem(`linkfluence_user_data_graphicbullng@gmail.com`, JSON.stringify({
-          balance: 0.00,
-          totalProfit: 0.00,
-          totalWithdrawals: 0.00,
-          totalInvestments: 0.00,
-          activePlans: [],
-          kyc: { status: 'Unregistered', fullName: '', documentType: 'National ID Card', documentNumber: '', country: 'United States' },
-          transactions: []
-        }));
-      }
-      localStorage.setItem('linkfluence_system_initialized', 'true');
-    }
-
-    const activeEmail = localStorage.getItem('linkfluence_active_user_email');
-    if (activeEmail) {
-      try {
-        const saved = localStorage.getItem(`linkfluence_user_profile_${activeEmail}`);
-        if (saved) {
-          setCurrentUser(JSON.parse(saved));
+        if (!localStorage.getItem(`linkfluence_user_data_graphicbullng@gmail.com`)) {
+          localStorage.setItem(`linkfluence_user_data_graphicbullng@gmail.com`, JSON.stringify({
+            balance: 0.00,
+            totalProfit: 0.00,
+            totalWithdrawals: 0.00,
+            totalInvestments: 0.00,
+            activePlans: [],
+            kyc: { status: 'Unregistered', fullName: '', documentType: 'National ID Card', documentNumber: '', country: 'United States' },
+            transactions: []
+          }));
         }
-      } catch (e) {
-        console.error("Failed to restore current user", e);
+        localStorage.setItem('linkfluence_system_initialized', 'true');
       }
-    }
+
+      const activeEmail = localStorage.getItem('linkfluence_active_user_email');
+      if (activeEmail) {
+        try {
+          const saved = localStorage.getItem(`linkfluence_user_profile_${activeEmail}`);
+          if (saved) {
+            setCurrentUser(JSON.parse(saved));
+          }
+        } catch (e) {
+          console.error("Failed to restore current user", e);
+        }
+      }
+    };
+
+    initializeApp();
   }, []);
 
   const triggerToast = (message: string) => {
