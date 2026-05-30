@@ -1600,12 +1600,6 @@ export default function App() {
                         Partners
                       </button>
                     </li>
-                    <li>
-                      <button type="button" onClick={handleOpenAdmin} className="hover:text-rose-500 text-rose-500 font-semibold transition text-left cursor-pointer flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
-                        Admin Panel
-                      </button>
-                    </li>
                   </ul>
                 </div>
 
@@ -1627,10 +1621,6 @@ export default function App() {
                 </button>
                 <button type="button" onClick={() => setActiveModal('help')} className="text-gray-500 hover:text-[#3CB371] transition cursor-pointer">
                   Privacy Policy
-                </button>
-                <button type="button" onClick={handleOpenAdmin} className="hover:bg-rose-150/40 hover:text-rose-600 text-rose-500 font-semibold transition cursor-pointer flex items-center gap-1 bg-rose-50/50 border border-rose-100/40 px-2.5 py-1.5 rounded-xl text-xs">
-                  <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
-                  Admin Portal
                 </button>
               </div>
             </div>
