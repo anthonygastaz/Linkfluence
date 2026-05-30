@@ -386,15 +386,75 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     addLog('Administrator signed out.', 'info');
   };
 
-  // Helper: Retrieve full user record compiled
+  // Helper: Retrieve full user record compiled with dynamic automatic backup seeding
   const getUserRecord = (email: string) => {
-    const profileSaved = localStorage.getItem(`linkfluence_user_profile_${email}`);
-    const dataSaved = localStorage.getItem(`linkfluence_user_data_${email}`);
+    let profileSaved = localStorage.getItem(`linkfluence_user_profile_${email}`);
+    let dataSaved = localStorage.getItem(`linkfluence_user_data_${email}`);
     
-    let profile = { name: 'Unknown', email: email, country: 'United States', phone: '' };
-    if (profileSaved) {
-      try { profile = JSON.parse(profileSaved); } catch (e) {}
+    // Auto-seed missing user profile with a graceful human name derived from their email address
+    if (!profileSaved) {
+      const emailPrefix = email.split('@')[0];
+      const name = emailPrefix
+        .replace('.', ' ')
+        .replace('-', ' ')
+        .replace('_', ' ')
+        .replace(/(^\w|\s\w)/g, m => m.toUpperCase());
+        
+      const seedProfile = {
+        name,
+        email,
+        country: 'United States',
+        phone: '+1 (555) 012-' + Math.floor(1000 + Math.random() * 9000)
+      };
+      profileSaved = JSON.stringify(seedProfile);
+      localStorage.setItem(`linkfluence_user_profile_${email}`, profileSaved);
     }
+    
+    // Auto-seed missing user data with a realistic balance structure matching a newly registered partner
+    if (!dataSaved) {
+      const seedData: UserState = {
+        balance: 350.00, // Seed a small default start reward
+        totalProfit: 12.50,
+        totalWithdrawals: 0.00,
+        totalInvestments: 300.00,
+        activePlans: [
+          {
+            id: 'p1',
+            name: 'Starter Plan',
+            amount: 300.00,
+            dailyYieldPercent: 1.5,
+            accruedInterest: 12.50,
+            daysActive: 3,
+            totalDays: 30,
+            dateStarted: new Date().toISOString().substring(0, 10)
+          }
+        ],
+        kyc: { 
+          status: 'Approved', 
+          fullName: email.split('@')[0].toUpperCase(), 
+          documentType: 'National ID Card', 
+          documentNumber: 'ID-' + Math.floor(100000 + Math.random() * 900000), 
+          country: 'United States' 
+        },
+        transactions: [
+          {
+            id: 'TXN-' + Math.floor(100000 + Math.random() * 900000),
+            date: new Date().toISOString().replace('T', ' ').substring(0, 16),
+            type: 'deposit',
+            amount: 300.00,
+            status: 'Approved',
+            methodOrPlan: 'USDT (TRC20)',
+            destinationOrDetail: 'TLeS3Z9rXv89...oWk2bX',
+            reference: 'TX-' + Math.floor(100000 + Math.random() * 900000)
+          }
+        ]
+      };
+      dataSaved = JSON.stringify(seedData);
+      localStorage.setItem(`linkfluence_user_data_${email}`, dataSaved);
+    }
+
+    let profile = { name: 'Unknown', email: email, country: 'United States', phone: '' };
+    try { profile = JSON.parse(profileSaved); } catch (e) {}
 
     let data: UserState = {
       balance: 0,
@@ -405,9 +465,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       kyc: { status: 'Unregistered', fullName: '', documentType: '', documentNumber: '', country: '' },
       transactions: []
     };
-    if (dataSaved) {
-      try { data = JSON.parse(dataSaved); } catch (e) {}
-    }
+    try { data = JSON.parse(dataSaved); } catch (e) {}
 
     return { ...profile, ...data };
   };

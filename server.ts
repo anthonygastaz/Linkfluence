@@ -16,24 +16,30 @@ if (!fs.existsSync(DATA_DIR)) {
 
 const STORAGE_FILE = path.join(DATA_DIR, "storage.json");
 
-// Helper to read storage file safely
-function readStorage() {
+// Helper to load storage from disk on startup
+let memoryStore: Record<string, any> = {};
+
+function loadStorageOnStartup() {
   if (!fs.existsSync(STORAGE_FILE)) {
-    return {};
+    memoryStore = {};
+    return;
   }
   try {
     const data = fs.readFileSync(STORAGE_FILE, "utf-8");
-    return JSON.parse(data);
+    memoryStore = JSON.parse(data);
   } catch (err) {
-    console.error("Error reading storage file:", err);
-    return {};
+    console.error("Error reading storage file on startup:", err);
+    memoryStore = {};
   }
 }
 
-// Helper to write storage file safely
-function writeStorage(store: any) {
+// Initial load on server boot-up
+loadStorageOnStartup();
+
+// Helper to write memoryStore to storage file safely
+function writeStorage() {
   try {
-    fs.writeFileSync(STORAGE_FILE, JSON.stringify(store, null, 2), "utf-8");
+    fs.writeFileSync(STORAGE_FILE, JSON.stringify(memoryStore, null, 2), "utf-8");
   } catch (err) {
     console.error("Error writing storage file:", err);
   }
@@ -41,8 +47,7 @@ function writeStorage(store: any) {
 
 // 1. API: Get all keys
 app.get("/api/storage/all", (req, res) => {
-  const store = readStorage();
-  res.json(store);
+  res.json(memoryStore);
 });
 
 // 2. API: Get specific key
@@ -51,8 +56,7 @@ app.get("/api/storage/get", (req, res) => {
   if (!key || typeof key !== "string") {
     return res.status(400).json({ error: "Missing key parameter" });
   }
-  const store = readStorage();
-  res.json({ key, value: store[key] || null });
+  res.json({ key, value: memoryStore[key] || null });
 });
 
 // 3. API: Set key value
@@ -61,9 +65,8 @@ app.post("/api/storage/set", (req, res) => {
   if (!key || typeof key !== "string") {
     return res.status(400).json({ error: "Missing key or invalid format" });
   }
-  const store = readStorage();
-  store[key] = value;
-  writeStorage(store);
+  memoryStore[key] = value;
+  writeStorage();
   res.json({ success: true });
 });
 
@@ -73,9 +76,8 @@ app.post("/api/storage/remove", (req, res) => {
   if (!key || typeof key !== "string") {
     return res.status(400).json({ error: "Missing key or invalid format" });
   }
-  const store = readStorage();
-  delete store[key];
-  writeStorage(store);
+  delete memoryStore[key];
+  writeStorage();
   res.json({ success: true });
 });
 
