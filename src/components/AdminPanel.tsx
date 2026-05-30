@@ -100,6 +100,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
   // Unified State Stores (seeded with standard users if empty)
   const [roster, setRoster] = useState<string[]>([]);
+  const [profilesList, setProfilesList] = useState<any[]>([]);
   const [selectedUserEmail, setSelectedUserEmail] = useState<string>('');
   
   // Create / Edit User state
@@ -212,7 +213,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
         if (profileErr) throw profileErr;
 
         if (dbProfiles && Array.isArray(dbProfiles)) {
-          dbProfiles.forEach((item: any) => {
+          const parsedProfiles = dbProfiles.map((item: any) => {
             const profile = { 
               name: item.name || item.email.split('@')[0], 
               email: item.email, 
@@ -237,13 +238,12 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
               },
               transactions: item.transactions ? (typeof item.transactions === 'string' ? JSON.parse(item.transactions) : item.transactions) : []
             };
-
-            window.localStorage.setItem(`linkfluence_user_profile_${item.email}`, JSON.stringify(profile));
-            window.localStorage.setItem(`linkfluence_user_data_${item.email}`, JSON.stringify(details));
+            return { ...profile, ...details };
           });
 
+          setProfilesList(parsedProfiles);
+
           const emails = dbProfiles.map((u: any) => u.email);
-          window.localStorage.setItem('linkfluence_users_roster', JSON.stringify(emails));
           setRoster(emails);
           if (emails.length > 0 && !selectedUserEmail) {
             setSelectedUserEmail(emails[0]);
@@ -488,6 +488,26 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
   // Helper: Retrieve full user record compiled with dynamic automatic backup seeding
   const getUserRecord = (email: string) => {
+    if (isSupabaseConfigured()) {
+      const found = profilesList.find(p => p.email.toLowerCase().trim() === email.toLowerCase().trim());
+      if (found) {
+        return found;
+      }
+      return {
+        name: email.split('@')[0],
+        email: email,
+        country: 'United States',
+        phone: '',
+        balance: 0,
+        totalProfit: 0,
+        totalWithdrawals: 0,
+        totalInvestments: 0,
+        activePlans: [],
+        kyc: { status: 'Unregistered', fullName: '', documentType: 'National ID Card', documentNumber: '', country: 'United States' },
+        transactions: []
+      };
+    }
+
     let profileSaved = localStorage.getItem(`linkfluence_user_profile_${email}`);
     let dataSaved = localStorage.getItem(`linkfluence_user_data_${email}`);
     
@@ -640,6 +660,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
             addLog(`Supabase save error for ${email}: ${error.message}`, 'warn');
           } else {
             addLog(`Committed admin updates directly to Supabase for ${email}`, 'success');
+            fetchGlobalUsers();
           }
         });
     } else {
@@ -829,6 +850,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                 console.error("Failed to delete user profile from Supabase", error);
               } else {
                 addLog(`Terminated cloud database records on Supabase for ${email}`, 'warn');
+                fetchGlobalUsers();
               }
             });
         }
@@ -878,6 +900,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                 console.error("Failed to delete all profiles from Supabase", error);
               } else {
                 addLog('Purged all cloud registrations on Supabase database table.', 'warn');
+                fetchGlobalUsers();
               }
             });
         }
