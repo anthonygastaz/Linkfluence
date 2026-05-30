@@ -2290,7 +2290,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       {/* Elegant minimalist bottom footer */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-2 pt-5 border-t border-gray-150/40 text-[10.5px] font-mono text-gray-400 select-none">
         <span className="text-center sm:text-left leading-relaxed">
-          SECURE CHANNEL OPERATOR LOGGED IN AS: <strong className="text-gray-600 uppercase font-bold">{currentUser?.name || "ROOT_ADMIN"}</strong> ({currentUser?.email || "EXTERNAL_OPERATOR"})
+          SECURE OPERATOR ACCESS LEVEL: <strong className="text-gray-600 uppercase font-bold">SYSTEM ADMINISTRATOR</strong> (affiliateassociateprogram)
         </span>
         <button
           type="button"
