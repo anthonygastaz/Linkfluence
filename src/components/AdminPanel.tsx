@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import LogoIcon from './LogoIcon';
+import { syncFromGlobalStorage } from '../lib/sync';
 import { 
   Users, 
   TrendingUp, 
@@ -199,12 +200,57 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     { id: 'LOG-2', date: '2026-05-28 05:43', action: 'Seeded default account registers (Liam Harris, Chloe Stanford, Sarah Jenkins).', priority: 'info' }
   ]);
 
+  // Real-time secure global user list fetch from server DB
+  const fetchGlobalUsers = async () => {
+    try {
+      const res = await fetch('/api/users/list', {
+        headers: {
+          'Authorization': 'Bearer Lamba1###'
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.users)) {
+          // Store each user's record back to localized state silently in raw storage to avoid overwrite loops
+          data.users.forEach((item: any) => {
+            const profile = { name: item.name, email: item.email, country: item.country, phone: item.phone };
+            const details = {
+              balance: item.balance,
+              totalProfit: item.totalProfit,
+              totalWithdrawals: item.totalWithdrawals,
+              totalInvestments: item.totalInvestments,
+              activePlans: item.activePlans,
+              kyc: item.kyc,
+              transactions: item.transactions
+            };
+            window.localStorage.setItem(`linkfluence_user_profile_${item.email}`, JSON.stringify(profile));
+            window.localStorage.setItem(`linkfluence_user_data_${item.email}`, JSON.stringify(details));
+          });
+          const emails = data.users.map((u: any) => u.email);
+          window.localStorage.setItem('linkfluence_users_roster', JSON.stringify(emails));
+          setRoster(emails);
+          if (emails.length > 0 && !selectedUserEmail) {
+            setSelectedUserEmail(emails[0]);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Could not retrieve global user listing", err);
+    }
+  };
+
   // Seed default data structure inside localStorage
   useEffect(() => {
-    initDefaultDatabase();
-    loadRosterAndConfig();
+    const runStartup = async () => {
+      await syncFromGlobalStorage();
+      await fetchGlobalUsers();
+      initDefaultDatabase();
+      loadRosterAndConfig();
+    };
+    runStartup();
 
     const handleSyncEvent = () => {
+      fetchGlobalUsers();
       loadRosterAndConfig();
     };
 
@@ -508,6 +554,28 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       localStorage.setItem('linkfluence_users_roster', JSON.stringify(parsed));
       setRoster(parsed);
     }
+
+    // Connect directly to centralized update API
+    fetch('/api/users/update', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer Lamba1###'
+      },
+      body: JSON.stringify({
+        email,
+        updatedProfile: profile,
+        updatedData: data
+      })
+    })
+    .then(res => {
+      if (res.ok) {
+        addLog(`Synchronized backend update for state block of: ${email}`, 'success');
+      }
+    })
+    .catch(err => {
+      console.warn('Central update hook failed:', err);
+    });
 
     // Seeding/Updating notification event to immediately synchronize user dashboards
     window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email } }));

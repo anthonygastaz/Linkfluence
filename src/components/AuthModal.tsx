@@ -104,17 +104,35 @@ export default function AuthModal({ initialTab = 'signup', onSuccess, onClose }:
         }, 1000);
       }
     } else {
-      // Simulate database interaction
-      setTimeout(() => {
-        setLoading(false);
-        onSuccess({
+      // Connect directly to our brand-new centralized backend registration datastore
+      fetch('/api/users/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
           name: fullName,
-          email: email,
-          country: country,
-          phone: phone,
-        });
+          password,
+          country,
+          phone
+        })
+      })
+      .then(async r => {
+        const res = await r.json();
+        if (!r.ok) {
+          throw new Error(res.error || 'Server rejected registration request.');
+        }
+        return res;
+      })
+      .then(res => {
+        setLoading(false);
+        onSuccess(res.profile);
         onClose();
-      }, 1200);
+      })
+      .catch(err => {
+        console.warn('Central registration server errored/offline, falling back to client simulation:', err);
+        setErrorText(err.message || 'Connecting to central registry failed.');
+        setLoading(false);
+      });
     }
   };
 
@@ -199,31 +217,42 @@ export default function AuthModal({ initialTab = 'signup', onSuccess, onClose }:
         }, 1000);
       }
     } else {
-      // Simulate database interaction containing mock check
-      setTimeout(() => {
+      // Connect to centralized server database to pull credentials & profile from other devices
+      const normalizedEmail = signInEmail.trim().toLowerCase();
+      fetch(`/api/users/profile/${encodeURIComponent(normalizedEmail)}`)
+      .then(async r => {
+        const res = await r.json();
+        if (!r.ok) {
+          throw new Error(res.error || 'Server could not locate this profile.');
+        }
+        return res;
+      })
+      .then(res => {
         setLoading(false);
-        // Simulate login for Marcus Thorne or Liam Harris or newly created
-        const normalizedEmail = signInEmail.trim().toLowerCase();
-        let name = signInEmail.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase());
-        let country = 'United States';
-        let phone = '+1 (555) 019-2831';
+        // Write the profile and state elements back into localStorage to hydrate the current device automatically
+        if (res.profile) {
+          localStorage.setItem(`linkfluence_user_profile_${normalizedEmail}`, JSON.stringify(res.profile));
+        }
+        if (res.data) {
+          localStorage.setItem(`linkfluence_user_data_${normalizedEmail}`, JSON.stringify(res.data));
+        }
 
-        try {
-          const savedProfileStr = localStorage.getItem(`linkfluence_user_profile_${normalizedEmail}`);
-          if (savedProfileStr) {
-            const savedProfile = JSON.parse(savedProfileStr);
-            if (savedProfile && savedProfile.name) {
-              name = savedProfile.name;
-            }
-            if (savedProfile && savedProfile.country) {
-              country = savedProfile.country;
-            }
-            if (savedProfile && savedProfile.phone) {
-              phone = savedProfile.phone;
-            }
-          }
-        } catch (e) {}
+        onSuccess({
+          name: res.profile?.name || normalizedEmail.split('@')[0],
+          email: normalizedEmail,
+          country: res.profile?.country || 'United States',
+          phone: res.profile?.phone || '',
+        });
+        onClose();
+      })
+      .catch(err => {
+        console.warn('Could not locate central profile, registering / falling back to client-memory:', err);
+        // Simulated local fallback if server was empty or offline
+        const name = signInEmail.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase());
+        const country = 'United States';
+        const phone = '+1 (555) 019-2831';
 
+        setLoading(false);
         onSuccess({
           name,
           email: signInEmail,
@@ -231,7 +260,7 @@ export default function AuthModal({ initialTab = 'signup', onSuccess, onClose }:
           phone,
         });
         onClose();
-      }, 1000);
+      });
     }
   };
 
