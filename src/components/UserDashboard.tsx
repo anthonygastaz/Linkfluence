@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { 
   ArrowUpRight, 
   ArrowDownLeft, 
@@ -171,6 +172,58 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
       });
       setTransactions([]);
     }
+
+    if (isSupabaseConfigured()) {
+      supabase
+        .from('profiles')
+        .select('*')
+        .eq('email', user.email.toLowerCase().trim())
+        .maybeSingle()
+        .then(({ data: dbData, error }) => {
+          if (error) {
+            console.error("Failed to fetch user profile from Supabase", error);
+            return;
+          }
+          if (dbData) {
+            const loadedBalance = dbData.balance || 0;
+            const loadedProfit = dbData.total_profit || 0;
+            const loadedWithdrawals = dbData.total_withdrawals || 0;
+            const loadedInvestments = dbData.total_investments || 0;
+            const loadedPlans = dbData.active_plans ? (typeof dbData.active_plans === 'string' ? JSON.parse(dbData.active_plans) : dbData.active_plans) : [];
+            const loadedKyc = {
+              status: dbData.kyc_status || 'Unregistered',
+              fullName: dbData.kyc_full_name || dbData.name || '',
+              documentType: dbData.kyc_doc_type || 'National ID Card',
+              documentNumber: dbData.kyc_doc_num || '',
+              country: dbData.country || 'United States',
+              submittedAt: dbData.kyc_submitted_at,
+              uploadedFileName: dbData.kyc_file_name,
+              uploadedFileBase64: dbData.kyc_file_base64
+            };
+            const loadedTx = dbData.transactions ? (typeof dbData.transactions === 'string' ? JSON.parse(dbData.transactions) : dbData.transactions) : [];
+
+            setBalance(loadedBalance);
+            setTotalProfit(loadedProfit);
+            setTotalWithdrawals(loadedWithdrawals);
+            setTotalInvestments(loadedInvestments);
+            setActivePlans(loadedPlans);
+            setKyc(loadedKyc);
+            setTransactions(loadedTx);
+
+            // Back-fill into localStorage to keep cache and offline flow robust
+            const stateObj = {
+              balance: loadedBalance,
+              totalProfit: loadedProfit,
+              totalWithdrawals: loadedWithdrawals,
+              totalInvestments: loadedInvestments,
+              activePlans: loadedPlans,
+              kyc: loadedKyc,
+              transactions: loadedTx
+            };
+            localStorage.setItem(`linkfluence_user_data_${user.email}`, JSON.stringify(stateObj));
+          }
+        });
+    }
   }, [user.email]);
 
   // Listen for admin panel changes on user balance, plans, transactions, kyc, or gateways
@@ -178,21 +231,69 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
     const handleAdminSync = (e: Event) => {
       const customEvent = e as CustomEvent;
       // Synchronize active user state if the changed email matches
-      if (customEvent.detail && customEvent.detail.email === user.email) {
-        const key = `linkfluence_user_data_${user.email}`;
-        const saved = localStorage.getItem(key);
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            if (parsed.balance !== undefined) setBalance(parsed.balance);
-            if (parsed.totalProfit !== undefined) setTotalProfit(parsed.totalProfit);
-            if (parsed.totalWithdrawals !== undefined) setTotalWithdrawals(parsed.totalWithdrawals);
-            if (parsed.totalInvestments !== undefined) setTotalInvestments(parsed.totalInvestments);
-            if (parsed.activePlans !== undefined) setActivePlans(parsed.activePlans);
-            if (parsed.kyc !== undefined) setKyc(parsed.kyc);
-            if (parsed.transactions !== undefined) setTransactions(parsed.transactions);
-          } catch (err) {
-            console.error("Failed to sync on administrative event", err);
+      if (customEvent.detail && (customEvent.detail.email === user.email || customEvent.detail.email === '*')) {
+        if (isSupabaseConfigured()) {
+          supabase
+            .from('profiles')
+            .select('*')
+            .eq('email', user.email.toLowerCase().trim())
+            .maybeSingle()
+            .then(({ data: dbData, error }) => {
+              if (error) return;
+              if (dbData) {
+                const loadedBalance = dbData.balance || 0;
+                const loadedProfit = dbData.total_profit || 0;
+                const loadedWithdrawals = dbData.total_withdrawals || 0;
+                const loadedInvestments = dbData.total_investments || 0;
+                const loadedPlans = dbData.active_plans ? (typeof dbData.active_plans === 'string' ? JSON.parse(dbData.active_plans) : dbData.active_plans) : [];
+                const loadedKyc = {
+                  status: dbData.kyc_status || 'Unregistered',
+                  fullName: dbData.kyc_full_name || dbData.name || '',
+                  documentType: dbData.kyc_doc_type || 'National ID Card',
+                  documentNumber: dbData.kyc_doc_num || '',
+                  country: dbData.country || 'United States',
+                  submittedAt: dbData.kyc_submitted_at,
+                  uploadedFileName: dbData.kyc_file_name,
+                  uploadedFileBase64: dbData.kyc_file_base64
+                };
+                const loadedTx = dbData.transactions ? (typeof dbData.transactions === 'string' ? JSON.parse(dbData.transactions) : dbData.transactions) : [];
+
+                setBalance(loadedBalance);
+                setTotalProfit(loadedProfit);
+                setTotalWithdrawals(loadedWithdrawals);
+                setTotalInvestments(loadedInvestments);
+                setActivePlans(loadedPlans);
+                setKyc(loadedKyc);
+                setTransactions(loadedTx);
+
+                const stateObj = {
+                  balance: loadedBalance,
+                  totalProfit: loadedProfit,
+                  totalWithdrawals: loadedWithdrawals,
+                  totalInvestments: loadedInvestments,
+                  activePlans: loadedPlans,
+                  kyc: loadedKyc,
+                  transactions: loadedTx
+                };
+                localStorage.setItem(`linkfluence_user_data_${user.email}`, JSON.stringify(stateObj));
+              }
+            });
+        } else {
+          const key = `linkfluence_user_data_${user.email}`;
+          const saved = localStorage.getItem(key);
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (parsed.balance !== undefined) setBalance(parsed.balance);
+              if (parsed.totalProfit !== undefined) setTotalProfit(parsed.totalProfit);
+              if (parsed.totalWithdrawals !== undefined) setTotalWithdrawals(parsed.totalWithdrawals);
+              if (parsed.totalInvestments !== undefined) setTotalInvestments(parsed.totalInvestments);
+              if (parsed.activePlans !== undefined) setActivePlans(parsed.activePlans);
+              if (parsed.kyc !== undefined) setKyc(parsed.kyc);
+              if (parsed.transactions !== undefined) setTransactions(parsed.transactions);
+            } catch (err) {
+              console.error("Failed to sync on administrative event", err);
+            }
           }
         }
       }
@@ -259,6 +360,38 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
       transactions: newTx
     };
     localStorage.setItem(key, JSON.stringify(stateObj));
+
+    if (isSupabaseConfigured()) {
+      const dbProfile = {
+        name: user.name,
+        email: user.email.toLowerCase().trim(),
+        country: user.country,
+        phone: user.phone,
+        balance: newBalance,
+        total_profit: newProfit,
+        total_withdrawals: newWithdrawals,
+        total_investments: newInvestments,
+        kyc_status: newKyc.status,
+        kyc_submitted_file: newKyc.status !== 'Unregistered',
+        kyc_approved: newKyc.status === 'Approved',
+        kyc_doc_type: newKyc.documentType,
+        kyc_doc_num: newKyc.documentNumber,
+        kyc_file_name: newKyc.uploadedFileName,
+        kyc_file_base64: newKyc.uploadedFileBase64,
+        kyc_full_name: newKyc.fullName,
+        active_plans: newPlans,
+        transactions: newTx
+      };
+
+      supabase
+        .from('profiles')
+        .upsert(dbProfile, { onConflict: 'email' })
+        .then(({ error }) => {
+          if (error) {
+            console.error("Could not sync state to Supabase:", error);
+          }
+        });
+    }
   };
 
   // Real-time Yield accumulation tick simulator (increment accrued interest every 15 seconds)

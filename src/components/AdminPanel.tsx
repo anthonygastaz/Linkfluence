@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import LogoIcon from './LogoIcon';
 import { syncFromGlobalStorage } from '../lib/sync';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { 
   Users, 
   TrendingUp, 
@@ -200,42 +201,95 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     { id: 'LOG-2', date: '2026-05-28 05:43', action: 'Seeded default account registers (Liam Harris, Chloe Stanford, Sarah Jenkins).', priority: 'info' }
   ]);
 
-  // Real-time secure global user list fetch from server DB
+  // Real-time secure global user list fetch from server DB or Supabase cloud
   const fetchGlobalUsers = async () => {
-    try {
-      const res = await fetch('/api/users/list', {
-        headers: {
-          'Authorization': 'Bearer Lamba1###'
-        }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data && Array.isArray(data.users)) {
-          // Store each user's record back to localized state silently in raw storage to avoid overwrite loops
-          data.users.forEach((item: any) => {
-            const profile = { name: item.name, email: item.email, country: item.country, phone: item.phone };
-            const details = {
-              balance: item.balance,
-              totalProfit: item.totalProfit,
-              totalWithdrawals: item.totalWithdrawals,
-              totalInvestments: item.totalInvestments,
-              activePlans: item.activePlans,
-              kyc: item.kyc,
-              transactions: item.transactions
+    if (isSupabaseConfigured()) {
+      try {
+        const { data: dbProfiles, error: profileErr } = await supabase
+          .from('profiles')
+          .select('*');
+
+        if (profileErr) throw profileErr;
+
+        if (dbProfiles && Array.isArray(dbProfiles)) {
+          dbProfiles.forEach((item: any) => {
+            const profile = { 
+              name: item.name || item.email.split('@')[0], 
+              email: item.email, 
+              country: item.country || 'United States', 
+              phone: item.phone || '' 
             };
+            const details = {
+              balance: item.balance || 0,
+              totalProfit: item.total_profit || 0,
+              totalWithdrawals: item.total_withdrawals || 0,
+              totalInvestments: item.total_investments || 0,
+              activePlans: item.active_plans ? (typeof item.active_plans === 'string' ? JSON.parse(item.active_plans) : item.active_plans) : [],
+              kyc: {
+                status: item.kyc_status || 'Unregistered',
+                fullName: item.kyc_full_name || item.name || '',
+                documentType: item.kyc_doc_type || 'National ID Card',
+                documentNumber: item.kyc_doc_num || '',
+                country: item.country || 'United States',
+                submittedAt: item.kyc_submitted_at,
+                uploadedFileName: item.kyc_file_name,
+                uploadedFileBase64: item.kyc_file_base64
+              },
+              transactions: item.transactions ? (typeof item.transactions === 'string' ? JSON.parse(item.transactions) : item.transactions) : []
+            };
+
             window.localStorage.setItem(`linkfluence_user_profile_${item.email}`, JSON.stringify(profile));
             window.localStorage.setItem(`linkfluence_user_data_${item.email}`, JSON.stringify(details));
           });
-          const emails = data.users.map((u: any) => u.email);
+
+          const emails = dbProfiles.map((u: any) => u.email);
           window.localStorage.setItem('linkfluence_users_roster', JSON.stringify(emails));
           setRoster(emails);
           if (emails.length > 0 && !selectedUserEmail) {
             setSelectedUserEmail(emails[0]);
           }
+          addLog('Successfully loaded registered partner records from Supabase cloud database.', 'success');
         }
+      } catch (err: any) {
+        console.error("Could not retrieve global user listing from Supabase", err);
+        addLog('Supabase user fetch failed, querying local backup registry.', 'warn');
       }
-    } catch (err) {
-      console.warn("Could not retrieve global user listing", err);
+    } else {
+      try {
+        const res = await fetch('/api/users/list', {
+          headers: {
+            'Authorization': 'Bearer Lamba1###'
+          }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.users)) {
+            // Store each user's record back to localized state silently in raw storage to avoid overwrite loops
+            data.users.forEach((item: any) => {
+              const profile = { name: item.name, email: item.email, country: item.country, phone: item.phone };
+              const details = {
+                balance: item.balance,
+                totalProfit: item.totalProfit,
+                totalWithdrawals: item.totalWithdrawals,
+                totalInvestments: item.totalInvestments,
+                activePlans: item.activePlans,
+                kyc: item.kyc,
+                transactions: item.transactions
+              };
+              window.localStorage.setItem(`linkfluence_user_profile_${item.email}`, JSON.stringify(profile));
+              window.localStorage.setItem(`linkfluence_user_data_${item.email}`, JSON.stringify(details));
+            });
+            const emails = data.users.map((u: any) => u.email);
+            window.localStorage.setItem('linkfluence_users_roster', JSON.stringify(emails));
+            setRoster(emails);
+            if (emails.length > 0 && !selectedUserEmail) {
+              setSelectedUserEmail(emails[0]);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Could not retrieve global user listing", err);
+      }
     }
   };
 
@@ -555,27 +609,62 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       setRoster(parsed);
     }
 
-    // Connect directly to centralized update API
-    fetch('/api/users/update', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer Lamba1###'
-      },
-      body: JSON.stringify({
-        email,
-        updatedProfile: profile,
-        updatedData: data
+    if (isSupabaseConfigured()) {
+      const dbProfile = {
+        name: profile.name,
+        email: profile.email.toLowerCase().trim(),
+        country: profile.country,
+        phone: profile.phone,
+        balance: data.balance,
+        total_profit: data.totalProfit,
+        total_withdrawals: data.totalWithdrawals,
+        total_investments: data.totalInvestments,
+        kyc_status: data.kyc.status,
+        kyc_submitted_file: data.kyc.status !== 'Unregistered',
+        kyc_approved: data.kyc.status === 'Approved',
+        kyc_doc_type: data.kyc.documentType,
+        kyc_doc_num: data.kyc.documentNumber,
+        kyc_file_name: data.kyc.uploadedFileName,
+        kyc_file_base64: data.kyc.uploadedFileBase64,
+        kyc_full_name: data.kyc.fullName,
+        active_plans: data.activePlans,
+        transactions: data.transactions
+      };
+
+      supabase
+        .from('profiles')
+        .upsert(dbProfile, { onConflict: 'email' })
+        .then(({ error }) => {
+          if (error) {
+            console.error("Failed to sync updated record to Supabase profiles", error);
+            addLog(`Supabase save error for ${email}: ${error.message}`, 'warn');
+          } else {
+            addLog(`Committed admin updates directly to Supabase for ${email}`, 'success');
+          }
+        });
+    } else {
+      // Connect directly to centralized update API
+      fetch('/api/users/update', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer Lamba1###'
+        },
+        body: JSON.stringify({
+          email,
+          updatedProfile: profile,
+          updatedData: data
+        })
       })
-    })
-    .then(res => {
-      if (res.ok) {
-        addLog(`Synchronized backend update for state block of: ${email}`, 'success');
-      }
-    })
-    .catch(err => {
-      console.warn('Central update hook failed:', err);
-    });
+      .then(res => {
+        if (res.ok) {
+          addLog(`Synchronized backend update for state block of: ${email}`, 'success');
+        }
+      })
+      .catch(err => {
+        console.warn('Central update hook failed:', err);
+      });
+    }
 
     // Seeding/Updating notification event to immediately synchronize user dashboards
     window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email } }));
@@ -730,6 +819,20 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
           } catch (e) {}
         }
         
+        if (isSupabaseConfigured()) {
+          supabase
+            .from('profiles')
+            .delete()
+            .eq('email', email.toLowerCase().trim())
+            .then(({ error }) => {
+              if (error) {
+                console.error("Failed to delete user profile from Supabase", error);
+              } else {
+                addLog(`Terminated cloud database records on Supabase for ${email}`, 'warn');
+              }
+            });
+        }
+
         triggerToast(`Account ${email} deleted successfully.`);
         addLog(`Deleted customer account and ledger logs for ${email}`, 'warn');
         loadRosterAndConfig();
@@ -765,6 +868,20 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
         // Keep system initialized flag as true so default seed doesn't re-execute on page load
         localStorage.setItem('linkfluence_system_initialized', 'true');
         
+        if (isSupabaseConfigured()) {
+          supabase
+            .from('profiles')
+            .delete()
+            .neq('email', '')
+            .then(({ error }) => {
+              if (error) {
+                console.error("Failed to delete all profiles from Supabase", error);
+              } else {
+                addLog('Purged all cloud registrations on Supabase database table.', 'warn');
+              }
+            });
+        }
+
         triggerToast("Succeeded! All user accounts have been permanently deleted.");
         addLog("Deleted all registered partner accounts", "warn");
         
