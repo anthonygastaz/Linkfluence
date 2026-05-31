@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { User, Mail, Lock, Eye, EyeOff, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { User, Mail, Lock, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { supabaseService } from '../lib/supabaseService';
+import { DEFAULT_COUNTRY, CountrySelect } from '../lib/countries';
 
 interface AuthModalProps {
   initialTab?: 'signup' | 'signin';
@@ -9,47 +10,74 @@ interface AuthModalProps {
   onClose: () => void;
 }
 
-const COUNTRIES = [
-  { code: 'US', name: 'United States', dial: '+1' },
-  { code: 'CA', name: 'Canada', dial: '+1' },
-  { code: 'GB', name: 'United Kingdom', dial: '+44' },
-  { code: 'AU', name: 'Australia', dial: '+61' },
-  { code: 'DE', name: 'Germany', dial: '+49' },
-  { code: 'FR', name: 'France', dial: '+33' },
-  { code: 'SG', name: 'Singapore', dial: '+65' },
-  { code: 'BR', name: 'Brazil', dial: '+55' },
-];
+const INPUT_CLASS =
+  'w-full border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#3CB371]/30 focus:border-[#3CB371] text-black transition-shadow';
+const LABEL_CLASS = 'text-xs font-semibold text-gray-600';
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <label className={LABEL_CLASS}>{children}</label>;
+}
+
+function IconWrap({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400 pointer-events-none">
+      {children}
+    </span>
+  );
+}
 
 export default function AuthModal({ initialTab = 'signup', onSuccess, onClose }: AuthModalProps) {
   const [activeTab, setActiveTab] = useState<'signup' | 'signin'>(initialTab);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Sign up fields
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [country, setCountry] = useState('United States');
+  const [country, setCountry] = useState(DEFAULT_COUNTRY);
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [termsAccepted, setTermsAccepted] = useState(true);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
-  // Sign in fields
   const [signInEmail, setSignInEmail] = useState('');
   const [signInPassword, setSignInPassword] = useState('');
 
-  // Validation feedback
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [infoText, setInfoText] = useState<string | null>(null);
 
   const handleToggleTab = (tab: 'signup' | 'signin') => {
     setActiveTab(tab);
     setErrorText(null);
+    setInfoText(null);
+  };
+
+  const completeAuth = async (
+    userId: string,
+    userEmail: string,
+    fallback: { name: string; country: string; phone: string }
+  ) => {
+    await supabaseService.updateProfileFields(userId, {
+      name: fallback.name,
+      country: fallback.country,
+      phone: fallback.phone,
+      email: userEmail.toLowerCase().trim(),
+    });
+
+    const profile = await supabaseService.fetchProfile(userId, userEmail);
+    onSuccess({
+      name: profile?.name || fallback.name,
+      email: profile?.email || userEmail.toLowerCase().trim(),
+      country: profile?.country || fallback.country,
+      phone: profile?.phone || fallback.phone,
+    });
+    setLoading(false);
+    onClose();
   };
 
   const handleSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorText(null);
+    setInfoText(null);
 
-    // Basic Validation
     if (!fullName.trim()) {
       setErrorText('Please enter your full name.');
       return;
@@ -59,86 +87,53 @@ export default function AuthModal({ initialTab = 'signup', onSuccess, onClose }:
       return;
     }
     if (password.length < 6) {
-      setErrorText('Password must be at least 6 characters long.');
+      setErrorText('Password must be at least 6 characters.');
       return;
     }
     if (!termsAccepted) {
-      setErrorText('You must accept the terms of service.');
+      setErrorText('Please accept the terms to continue.');
       return;
     }
 
     setLoading(true);
 
-    if (isSupabaseConfigured()) {
-      try {
-        const data = await supabaseService.signUp(email, password, {
-          name: fullName,
-          country,
-          phone
-        });
+    if (!isSupabaseConfigured()) {
+      setLoading(false);
+      setErrorText('Supabase is not configured. Registration is unavailable.');
+      return;
+    }
 
-        // Try to fetch or create profile automatically
-        if (data.user) {
-          const profile = await supabaseService.fetchProfile(data.user.id, data.user.email || email);
-          onSuccess({
-            name: profile?.name || fullName,
-            email: profile?.email || email,
-            country: profile?.country || country,
-            phone: profile?.phone || phone,
-          });
-        }
-        setLoading(false);
-        onClose();
-      } catch (err: any) {
-        console.warn('Supabase Auth failed, triggering automatic local sandbox user registration:', err);
-        // Graceful fallback to sandbox localStorage to preserve perfect user registration workflow
-        setTimeout(() => {
-          setLoading(false);
-          onSuccess({
-            name: fullName,
-            email: email,
-            country: country,
-            phone: phone,
-          });
-          onClose();
-        }, 1000);
-      }
-    } else {
-      // Connect directly to our brand-new centralized backend registration datastore
-      fetch('/api/users/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email,
-          name: fullName,
-          password,
-          country,
-          phone
-        })
-      })
-      .then(async r => {
-        const res = await r.json();
-        if (!r.ok) {
-          throw new Error(res.error || 'Server rejected registration request.');
-        }
-        return res;
-      })
-      .then(res => {
-        setLoading(false);
-        onSuccess(res.profile);
-        onClose();
-      })
-      .catch(err => {
-        console.warn('Central registration server errored/offline, falling back to client simulation:', err);
-        setErrorText(err.message || 'Connecting to central registry failed.');
-        setLoading(false);
+    try {
+      const data = await supabaseService.signUp(email, password, {
+        name: fullName,
+        country,
+        phone,
       });
+
+      if (!data.user) {
+        throw new Error('Registration failed. Please try again.');
+      }
+
+      if (data.session) {
+        await completeAuth(data.user.id, data.user.email || email, {
+          name: fullName,
+          country,
+          phone,
+        });
+      } else {
+        setLoading(false);
+        setInfoText('Account created. Check your email to confirm, then sign in.');
+      }
+    } catch (err: any) {
+      setLoading(false);
+      setErrorText(err.message || 'Registration failed. Please try again.');
     }
   };
 
   const handleSignInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorText(null);
+    setInfoText(null);
 
     if (!signInEmail.trim() || !signInEmail.includes('@')) {
       setErrorText('Please enter your registered email address.');
@@ -151,361 +146,287 @@ export default function AuthModal({ initialTab = 'signup', onSuccess, onClose }:
 
     setLoading(true);
 
-    if (isSupabaseConfigured()) {
-      try {
-        const data = await supabaseService.signIn(signInEmail, signInPassword);
-        if (data.user) {
-          const profile = await supabaseService.fetchProfile(data.user.id, data.user.email || signInEmail);
-          const normalizedEmail = signInEmail.trim().toLowerCase();
-          let localName = '';
-          let localCountry = '';
-          let localPhone = '';
-          try {
-            const savedProfileStr = localStorage.getItem(`linkfluence_user_profile_${normalizedEmail}`);
-            if (savedProfileStr) {
-              const savedProfile = JSON.parse(savedProfileStr);
-              if (savedProfile) {
-                localName = savedProfile.name;
-                localCountry = savedProfile.country;
-                localPhone = savedProfile.phone;
-              }
-            }
-          } catch (e) {}
+    if (!isSupabaseConfigured()) {
+      setLoading(false);
+      setErrorText('Supabase is not configured. Sign in is unavailable.');
+      return;
+    }
 
-          onSuccess({
-            name: profile?.name || data.user.user_metadata?.name || localName || signInEmail.split('@')[0],
-            email: profile?.email || data.user.email || signInEmail,
-            country: profile?.country || data.user.user_metadata?.country || localCountry || 'United States',
-            phone: profile?.phone || data.user.user_metadata?.phone || localPhone || '',
-          });
-        }
-        setLoading(false);
-        onClose();
-      } catch (err: any) {
-        console.warn('Supabase Auth failed, triggering automatic local sandbox user authentication:', err);
-        // Graceful fallback to local simulated mode for offline or unconfigured environments
-        setTimeout(() => {
-          setLoading(false);
-          const normalizedEmail = signInEmail.trim().toLowerCase();
-          let name = signInEmail.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase());
-          let country = 'United States';
-          let phone = '+1 (555) 019-2831';
-
-          try {
-            const savedProfileStr = localStorage.getItem(`linkfluence_user_profile_${normalizedEmail}`);
-            if (savedProfileStr) {
-              const savedProfile = JSON.parse(savedProfileStr);
-              if (savedProfile && savedProfile.name) {
-                name = savedProfile.name;
-              }
-              if (savedProfile && savedProfile.country) {
-                country = savedProfile.country;
-              }
-              if (savedProfile && savedProfile.phone) {
-                phone = savedProfile.phone;
-              }
-            }
-          } catch (e) {}
-
-          onSuccess({
-            name,
-            email: signInEmail,
-            country,
-            phone,
-          });
-          onClose();
-        }, 1000);
+    try {
+      const data = await supabaseService.signIn(signInEmail, signInPassword);
+      if (!data.user) {
+        throw new Error('Sign in failed. Please check your credentials.');
       }
-    } else {
-      // Connect to centralized server database to pull credentials & profile from other devices
-      const normalizedEmail = signInEmail.trim().toLowerCase();
-      fetch(`/api/users/profile/${encodeURIComponent(normalizedEmail)}`)
-      .then(async r => {
-        const res = await r.json();
-        if (!r.ok) {
-          throw new Error(res.error || 'Server could not locate this profile.');
-        }
-        return res;
-      })
-      .then(res => {
-        setLoading(false);
-        // Write the profile and state elements back into localStorage to hydrate the current device automatically
-        if (res.profile) {
-          localStorage.setItem(`linkfluence_user_profile_${normalizedEmail}`, JSON.stringify(res.profile));
-        }
-        if (res.data) {
-          localStorage.setItem(`linkfluence_user_data_${normalizedEmail}`, JSON.stringify(res.data));
-        }
 
-        onSuccess({
-          name: res.profile?.name || normalizedEmail.split('@')[0],
-          email: normalizedEmail,
-          country: res.profile?.country || 'United States',
-          phone: res.profile?.phone || '',
-        });
-        onClose();
-      })
-      .catch(err => {
-        console.warn('Could not locate central profile, registering / falling back to client-memory:', err);
-        // Simulated local fallback if server was empty or offline
-        const name = signInEmail.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase());
-        const country = 'United States';
-        const phone = '+1 (555) 019-2831';
-
-        setLoading(false);
-        onSuccess({
-          name,
-          email: signInEmail,
-          country,
-          phone,
-        });
-        onClose();
+      await completeAuth(data.user.id, data.user.email || signInEmail, {
+        name: data.user.user_metadata?.name || signInEmail.split('@')[0],
+        country: data.user.user_metadata?.country || DEFAULT_COUNTRY,
+        phone: data.user.user_metadata?.phone || '',
       });
+    } catch (err: any) {
+      setLoading(false);
+      setErrorText(err.message || 'Sign in failed. Please check your credentials.');
     }
   };
 
   return (
-    <div className="flex flex-col gap-6 text-left max-w-lg mx-auto font-sans">
-      
-      {/* Dynamic Tab Switcher */}
-      <div className="flex bg-[#E6F7F0]/65 p-1 rounded-2xl border border-[#3CB371]/10">
-        <button
-          type="button"
-          onClick={() => handleToggleTab('signup')}
-          className={`flex-1 text-center py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 cursor-pointer ${
-            activeTab === 'signup'
-              ? 'bg-white text-black shadow-sm'
-              : 'text-gray-400 hover:text-black'
-          }`}
-        >
-          Create Partner Account
-        </button>
-        <button
-          type="button"
-          onClick={() => handleToggleTab('signin')}
-          className={`flex-1 text-center py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 cursor-pointer ${
-            activeTab === 'signin'
-              ? 'bg-white text-black shadow-sm'
-              : 'text-gray-400 hover:text-black'
-          }`}
-        >
-          Returning Sign In
-        </button>
-      </div>
-
-      {/* Alert Header bar */}
-      <div className="bg-white border border-gray-150 rounded-2xl p-4.5 flex gap-3 items-start">
-        <div className="p-1.5 bg-[#E6F7F0] rounded-lg text-[#3CB371] shrink-0">
-          <ShieldCheck size={18} />
-        </div>
-        <div>
-          <h4 className="text-xs font-bold text-black uppercase tracking-wider font-mono">
-            {activeTab === 'signup' ? 'Institutional Partner Access' : 'Secure Session Access'}
-          </h4>
-          <p className="text-gray-500 text-xs mt-1 leading-normal">
-            {activeTab === 'signup' 
-              ? 'Join 10k+ verified affiliates receiving reliable tracking models with zero hidden payout processing fees.' 
-              : 'Enter your credentials to manage active campaigns, audit instant clicks, and initiate rapid withdrawal cycles.'}
-          </p>
+    <div className="flex flex-col h-full min-h-0 text-left w-full font-sans">
+      {/* Tab switcher */}
+      <div className="shrink-0 px-4 sm:px-5 pt-4 pb-3">
+        <div className="flex bg-[#E6F7F0]/65 p-1 rounded-xl border border-[#3CB371]/10">
+          <button
+            type="button"
+            onClick={() => handleToggleTab('signup')}
+            className={`flex-1 text-center py-2.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
+              activeTab === 'signup'
+                ? 'bg-white text-black shadow-sm'
+                : 'text-gray-400 hover:text-black'
+            }`}
+          >
+            Create account
+          </button>
+          <button
+            type="button"
+            onClick={() => handleToggleTab('signin')}
+            className={`flex-1 text-center py-2.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
+              activeTab === 'signin'
+                ? 'bg-white text-black shadow-sm'
+                : 'text-gray-400 hover:text-black'
+            }`}
+          >
+            Sign in
+          </button>
         </div>
       </div>
 
-      {/* Error display */}
-      {errorText && (
-        <div className="bg-red-50 border border-red-100 rounded-xl p-3.5 text-xs text-red-600 font-medium animate-[fadeIn_0.2s_ease-out]">
-          ⚠ {errorText}
+      {/* Alerts */}
+      {(errorText || infoText) && (
+        <div className="shrink-0 px-4 sm:px-5 pb-3 space-y-2">
+          {errorText && (
+            <div className="bg-red-50 border border-red-100 rounded-xl px-3.5 py-3 text-xs text-red-600 font-medium">
+              {errorText}
+            </div>
+          )}
+          {infoText && (
+            <div className="bg-[#E6F7F0] border border-[#3CB371]/20 rounded-xl px-3.5 py-3 text-xs text-[#2E8B57] font-medium">
+              {infoText}
+            </div>
+          )}
         </div>
       )}
 
       {activeTab === 'signup' ? (
-        /* Sign Up Form */
-        <form onSubmit={handleSignUpSubmit} className="flex flex-col gap-4">
-          
-          {/* Full Name */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-gray-500">Full Name</label>
-            <div className="relative">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
-                <User size={16} />
-              </span>
-              <input
-                type="text"
-                required
-                placeholder="e.g. Liam Harris"
-                className="w-full border border-gray-150 rounded-xl pl-10 pr-4 py-3 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[#3CB371] text-black"
-                value={fullName}
-                onChange={e => setFullName(e.target.value)}
+        <form onSubmit={handleSignUpSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-5 pb-4 space-y-3.5">
+            <div className="flex gap-3 items-start bg-white border border-gray-100 rounded-xl p-3.5">
+              <div className="p-1.5 bg-[#E6F7F0] rounded-lg text-[#3CB371] shrink-0">
+                <ShieldCheck size={16} />
+              </div>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Join thousands of creators earning through tracked affiliate links with transparent payouts.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <FieldLabel>Full name</FieldLabel>
+              <div className="relative">
+                <IconWrap><User size={16} /></IconWrap>
+                <input
+                  type="text"
+                  required
+                  autoComplete="name"
+                  placeholder="Liam Harris"
+                  className={INPUT_CLASS}
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <FieldLabel>Email</FieldLabel>
+              <div className="relative">
+                <IconWrap><Mail size={16} /></IconWrap>
+                <input
+                  type="email"
+                  required
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  className={INPUT_CLASS}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <FieldLabel>Country</FieldLabel>
+              <CountrySelect
+                className="w-full border border-gray-200 rounded-xl px-3.5 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#3CB371]/30 focus:border-[#3CB371] text-black cursor-pointer transition-shadow"
+                value={country}
+                onChange={setCountry}
               />
             </div>
-          </div>
 
-          {/* Email Address */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-gray-500">Email Address</label>
-            <div className="relative">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
-                <Mail size={16} />
-              </span>
+            <div className="space-y-1.5">
+              <FieldLabel>
+                Phone <span className="text-gray-400 font-normal">(optional)</span>
+              </FieldLabel>
               <input
-                type="email"
-                required
-                placeholder="liam.harris@example.com"
-                className="w-full border border-gray-150 rounded-xl pl-10 pr-4 py-3 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[#3CB371] text-black"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
+                type="tel"
+                autoComplete="tel"
+                placeholder="+1 (555) 012-3456"
+                className="w-full border border-gray-200 rounded-xl px-3.5 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#3CB371]/30 focus:border-[#3CB371] text-black transition-shadow"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
               />
             </div>
+
+            <div className="space-y-1.5">
+              <FieldLabel>Password</FieldLabel>
+              <div className="relative">
+                <IconWrap><Lock size={16} /></IconWrap>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  autoComplete="new-password"
+                  placeholder="At least 6 characters"
+                  className={`${INPUT_CLASS} pr-10`}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 hover:text-black"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+
+            <label className="flex items-start gap-3 p-3.5 rounded-xl border border-gray-100 bg-white cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#3CB371] focus:ring-[#3CB371] shrink-0"
+                checked={termsAccepted}
+                onChange={(e) => setTermsAccepted(e.target.checked)}
+              />
+              <span className="text-xs text-gray-600 leading-relaxed">
+                I agree to the{' '}
+                <span className="text-[#3CB371] font-semibold">Terms of Service</span> and{' '}
+                <span className="text-[#3CB371] font-semibold">Privacy Policy</span>. I will promote
+                offers honestly, use tracking links as intended, and follow applicable advertising and
+                privacy laws in my country.
+              </span>
+            </label>
           </div>
 
-          {/* Secure Password */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-gray-500">Secure Password</label>
-            <div className="relative">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
-                <Lock size={16} />
-              </span>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                required
-                placeholder="••••••••"
-                className="w-full border border-gray-150 rounded-xl pl-10 pr-10 py-3 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[#3CB371] text-black"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-              />
+          <div className="shrink-0 px-4 sm:px-5 py-4 border-t border-gray-100 bg-white/95 backdrop-blur-sm space-y-3 safe-area-pb">
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-[#3CB371] hover:bg-[#2E8B57] disabled:bg-[#3CB371]/60 text-white font-semibold py-3.5 rounded-xl text-sm transition-all shadow-sm hover:shadow-md flex items-center justify-center min-h-[48px]"
+            >
+              {loading ? (
+                <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                'Create free account'
+              )}
+            </button>
+            <p className="text-center text-xs text-gray-400">
+              Already have an account?{' '}
               <button
                 type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 hover:text-black cursor-pointer"
+                onClick={() => handleToggleTab('signin')}
+                className="text-[#3CB371] font-semibold hover:underline"
               >
-                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                Sign in
               </button>
-            </div>
-            <p className="text-[10px] text-gray-400 leading-normal">
-              Minimum 6 characters with a combination of letters and numbers.
             </p>
           </div>
-
-          {/* Terms checkbox */}
-          <label className="flex items-start gap-2.5 mt-2 select-none cursor-pointer">
-            <input
-              type="checkbox"
-              className="mt-1 rounded text-[#3CB371] focus:ring-[#3CB371]"
-              checked={termsAccepted}
-              onChange={e => setTermsAccepted(e.target.checked)}
-            />
-            <span className="text-xs text-gray-500 leading-relaxed font-sans font-medium">
-              I agree to comply with traffic regulatory rules, click transparency audits, and verify that all dynamic redirects are directed at standard compliance campaigns.
-            </span>
-          </label>
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-4 bg-[#3CB371] hover:bg-[#2E8B57] disabled:bg-[#3CB371]/60 text-white font-semibold py-3.5 rounded-xl text-sm transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2 cursor-pointer"
-          >
-            {loading ? (
-              <span className="w-4.5 h-4.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-            ) : (
-              'Create My Free Account'
-            )}
-          </button>
-
-          <p className="text-center text-xs text-gray-400 mt-2">
-            Already verified?{' '}
-            <button
-              type="button"
-              onClick={() => handleToggleTab('signin')}
-              className="text-[#3CB371] font-bold hover:underline cursor-pointer"
-            >
-              Sign In
-            </button>
-          </p>
-
         </form>
       ) : (
-        /* Sign In Form */
-        <form onSubmit={handleSignInSubmit} className="flex flex-col gap-4">
-          
-          {/* Email Address */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-gray-500">Email Address</label>
-            <div className="relative">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
-                <Mail size={16} />
-              </span>
-              <input
-                type="email"
-                required
-                placeholder="liam.harris@example.com"
-                className="w-full border border-gray-150 rounded-xl pl-10 pr-4 py-3 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[#3CB371] text-black"
-                value={signInEmail}
-                onChange={e => setSignInEmail(e.target.value)}
-              />
+        <form onSubmit={handleSignInSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-5 pb-4 space-y-3.5 flex flex-col justify-center">
+            <div className="space-y-1.5">
+              <FieldLabel>Email</FieldLabel>
+              <div className="relative">
+                <IconWrap><Mail size={16} /></IconWrap>
+                <input
+                  type="email"
+                  required
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  className={INPUT_CLASS}
+                  value={signInEmail}
+                  onChange={(e) => setSignInEmail(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center gap-2">
+                <FieldLabel>Password</FieldLabel>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setInfoText('If an account exists, reset instructions will be sent to your email.')
+                  }
+                  className="text-xs text-gray-400 hover:text-[#3CB371] font-medium"
+                >
+                  Forgot password?
+                </button>
+              </div>
+              <div className="relative">
+                <IconWrap><Lock size={16} /></IconWrap>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  autoComplete="current-password"
+                  placeholder="Your password"
+                  className={`${INPUT_CLASS} pr-10`}
+                  value={signInPassword}
+                  onChange={(e) => setSignInPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 hover:text-black"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Password */}
-          <div className="flex flex-col gap-1.5">
-            <div className="flex justify-between items-center">
-              <label className="text-xs font-semibold text-gray-500">Password</label>
-              <button 
-                type="button" 
-                onClick={() => setErrorText('Password reset instructions have been forwarded to your registered email address.')}
-                className="text-xs text-gray-400 hover:text-[#3CB371] transition cursor-pointer font-medium"
-              >
-                Forgot Password?
-              </button>
-            </div>
-            <div className="relative">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
-                <Lock size={16} />
-              </span>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                required
-                placeholder="••••••••"
-                className="w-full border border-gray-150 rounded-xl pl-10 pr-10 py-3 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[#3CB371] text-black"
-                value={signInPassword}
-                onChange={e => setSignInPassword(e.target.value)}
-              />
+          <div className="shrink-0 px-4 sm:px-5 py-4 border-t border-gray-100 bg-white/95 backdrop-blur-sm space-y-3 safe-area-pb">
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-black hover:bg-gray-800 disabled:bg-black/60 text-white font-semibold py-3.5 rounded-xl text-sm transition-all shadow-sm hover:shadow-md flex items-center justify-center min-h-[48px]"
+            >
+              {loading ? (
+                <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                'Sign in'
+              )}
+            </button>
+            <p className="text-center text-xs text-gray-400">
+              New here?{' '}
               <button
                 type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 hover:text-black cursor-pointer"
+                onClick={() => handleToggleTab('signup')}
+                className="text-[#3CB371] font-semibold hover:underline"
               >
-                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                Create account
               </button>
-            </div>
+            </p>
           </div>
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-4 bg-black hover:bg-gray-800 disabled:bg-black/60 text-white font-semibold py-3.5 rounded-xl text-sm transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2 cursor-pointer"
-          >
-            {loading ? (
-              <span className="w-4.5 h-4.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-            ) : (
-              'Secure Sign In'
-            )}
-          </button>
-
-          <p className="text-center text-xs text-gray-400 mt-2">
-            New here?{' '}
-            <button
-              type="button"
-              onClick={() => handleToggleTab('signup')}
-              className="text-[#3CB371] font-bold hover:underline cursor-pointer"
-            >
-              Apply as Partner
-            </button>
-          </p>
-
         </form>
       )}
-
     </div>
   );
 }

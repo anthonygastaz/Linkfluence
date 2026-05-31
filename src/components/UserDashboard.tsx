@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { supabaseService, buildProfilePayload, mapProfileToDashboardState } from '../lib/supabaseService';
+import { catalogService } from '../lib/catalogService';
+import { CountrySelect } from '../lib/countries';
 import { 
   ArrowUpRight, 
   ArrowDownLeft, 
@@ -45,6 +48,8 @@ interface Transaction {
   date: string;
   status: 'Completed' | 'Pending' | 'Failed' | 'Approved' | 'failed';
   reference: string;
+  proofFilePath?: string;
+  proofFileName?: string;
 }
 
 interface ActivePlan {
@@ -59,7 +64,7 @@ interface ActivePlan {
 }
 
 interface KYCData {
-  status: 'Unregistered' | 'Pending' | 'Approved';
+  status: 'Unregistered' | 'Pending' | 'Approved' | 'Rejected';
   fullName: string;
   documentType: string;
   documentNumber: string;
@@ -67,6 +72,7 @@ interface KYCData {
   submittedAt?: string;
   uploadedFileName?: string;
   uploadedFileBase64?: string;
+  uploadedFilePath?: string;
 }
 
 interface UserDashboardProps {
@@ -82,41 +88,29 @@ interface UserDashboardProps {
   onOpenAdmin?: () => void;
 }
 
-const PLANS_CONFIG = [
-  { id: 'p1', name: 'Starter Plan', yield: 1.5, days: 30, min: 30, desc: 'Ideal for aspiring creators starting to monetize their link shares. Standard click & geo tracking with weekly Monday payouts.' },
-  { id: 'p2', name: 'Growth Plan', yield: 2.2, days: 60, min: 50, desc: 'Perfect for growing content makers with an active click flow. Includes full device and link analytics.' },
-  { id: 'p3', name: 'Pro Premier Plan', yield: 3.0, days: 90, min: 100, desc: 'Optimized for professional creators seeking maximum daily yield. Includes real-time dashboard API hook and custom UTM Sub-IDs.' },
-  { id: 'p4', name: 'Executive Plan', yield: 4.5, days: 180, min: 200, desc: 'Engineered for high-volume networks, agencies, and large publishers. Comes with on-demand payouts and custom DNS cloaked domains.' }
-];
-
 export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToast, onOpenAdmin }: UserDashboardProps) {
   const [activeTab, setActiveTab] = useState<'home' | 'plans' | 'deposit' | 'withdraw' | 'transactions' | 'profile'>('home');
-  const [isMenuCollapsed, setIsMenuCollapsed] = useState<boolean>(false);
+  const [isMenuCollapsed, setIsMenuCollapsed] = useState<boolean>(true);
   const [isMenuHidden, setIsMenuHidden] = useState<boolean>(false);
   
-  // Dynamic Plans state synchronized with Admin Panel
-  const [plans, setPlans] = useState<any[]>(() => {
-    const saved = localStorage.getItem('linkfluence_investment_plans');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        // Fall back to constants
-      }
-    }
-    return PLANS_CONFIG;
-  });
+  const [plans, setPlans] = useState<any[]>([]);
+  const [paymentGateways, setPaymentGateways] = useState<any[]>([]);
+
+  const reloadCatalog = async () => {
+    const [nextPlans, nextMethods] = await Promise.all([
+      catalogService.fetchInvestmentPlans(),
+      catalogService.fetchPaymentMethods(),
+    ]);
+    setPlans(nextPlans);
+    setPaymentGateways(nextMethods);
+  };
 
   useEffect(() => {
-    const saved = localStorage.getItem('linkfluence_investment_plans');
-    if (saved) {
-      try {
-        setPlans(JSON.parse(saved));
-      } catch (e) {
-        console.error(e);
-      }
-    }
-  }, [activeTab]);
+    void reloadCatalog();
+    return catalogService.subscribeToCatalog(() => {
+      void reloadCatalog();
+    });
+  }, []);
   
   // Persisted financial state
   const [balance, setBalance] = useState<number>(0);
@@ -138,172 +132,64 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
 
   // Transactions logs
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
+  const [isHydrating, setIsHydrating] = useState(true);
+  const kycPendingFileRef = useRef<File | null>(null);
 
-  // Load from LocalStorage if available or reset to zero if new account
+  const applyDashboardState = (state: ReturnType<typeof mapProfileToDashboardState>) => {
+    setAuthUserId(state.authUserId);
+    setBalance(state.balance);
+    setTotalProfit(state.totalProfit);
+    setTotalWithdrawals(state.totalWithdrawals);
+    setTotalInvestments(state.totalInvestments);
+    setActivePlans(state.activePlans as ActivePlan[]);
+    setKyc(state.kyc as KYCData);
+    setTransactions(state.transactions as Transaction[]);
+  };
+
+  const reloadFromSupabase = async () => {
+    if (!isSupabaseConfigured()) return;
+    const authUser = await supabaseService.getCurrentUser();
+    if (!authUser?.id) return;
+    const state = await supabaseService.fetchDashboardState(authUser.id, user.email);
+    if (!state) return;
+    applyDashboardState(state);
+  };
+
+  // Supabase-first hydration on mount / email change
   useEffect(() => {
-    const key = `linkfluence_user_data_${user.email}`;
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed.balance !== undefined) setBalance(parsed.balance);
-        if (parsed.totalProfit !== undefined) setTotalProfit(parsed.totalProfit);
-        if (parsed.totalWithdrawals !== undefined) setTotalWithdrawals(parsed.totalWithdrawals);
-        if (parsed.totalInvestments !== undefined) setTotalInvestments(parsed.totalInvestments);
-        if (parsed.activePlans !== undefined) setActivePlans(parsed.activePlans);
-        if (parsed.kyc !== undefined) setKyc(parsed.kyc);
-        if (parsed.transactions !== undefined) setTransactions(parsed.transactions);
-      } catch (e) {
-        console.error("Failed to load user state from storage", e);
-      }
-    } else {
-      // New account structure - empty
-      setBalance(0);
-      setTotalProfit(0);
-      setTotalWithdrawals(0);
-      setTotalInvestments(0);
-      setActivePlans([]);
-      setKyc({
-        status: 'Unregistered',
-        fullName: '',
-        documentType: 'Nationwide Identity Card',
-        documentNumber: '',
-        country: user.country || 'United States'
-      });
-      setTransactions([]);
-    }
+    let cancelled = false;
 
-    if (isSupabaseConfigured()) {
-      supabase
-        .from('profiles')
-        .select('*')
-        .eq('email', user.email.toLowerCase().trim())
-        .maybeSingle()
-        .then(({ data: dbData, error }) => {
-          if (error) {
-            console.error("Failed to fetch user profile from Supabase", error);
+    const hydrate = async () => {
+      setIsHydrating(true);
+
+      if (isSupabaseConfigured()) {
+        const authUser = await supabaseService.getCurrentUser();
+        if (authUser?.id && !cancelled) {
+          const state = await supabaseService.fetchDashboardState(authUser.id, user.email);
+          if (state && !cancelled) {
+            applyDashboardState(state);
+            setIsHydrating(false);
             return;
-          }
-          if (dbData) {
-            const loadedBalance = dbData.balance || 0;
-            const loadedProfit = dbData.total_profit || 0;
-            const loadedWithdrawals = dbData.total_withdrawals || 0;
-            const loadedInvestments = dbData.total_investments || 0;
-            const loadedPlans = dbData.active_plans ? (typeof dbData.active_plans === 'string' ? JSON.parse(dbData.active_plans) : dbData.active_plans) : [];
-            const loadedKyc = {
-              status: dbData.kyc_status || 'Unregistered',
-              fullName: dbData.kyc_full_name || dbData.name || '',
-              documentType: dbData.kyc_doc_type || 'National ID Card',
-              documentNumber: dbData.kyc_doc_num || '',
-              country: dbData.country || 'United States',
-              submittedAt: dbData.kyc_submitted_at,
-              uploadedFileName: dbData.kyc_file_name,
-              uploadedFileBase64: dbData.kyc_file_base64
-            };
-            const loadedTx = dbData.transactions ? (typeof dbData.transactions === 'string' ? JSON.parse(dbData.transactions) : dbData.transactions) : [];
-
-            setBalance(loadedBalance);
-            setTotalProfit(loadedProfit);
-            setTotalWithdrawals(loadedWithdrawals);
-            setTotalInvestments(loadedInvestments);
-            setActivePlans(loadedPlans);
-            setKyc(loadedKyc);
-            setTransactions(loadedTx);
-
-            // Back-fill into localStorage to keep cache and offline flow robust
-            const stateObj = {
-              balance: loadedBalance,
-              totalProfit: loadedProfit,
-              totalWithdrawals: loadedWithdrawals,
-              totalInvestments: loadedInvestments,
-              activePlans: loadedPlans,
-              kyc: loadedKyc,
-              transactions: loadedTx
-            };
-            localStorage.setItem(`linkfluence_user_data_${user.email}`, JSON.stringify(stateObj));
-          }
-        });
-    }
-  }, [user.email]);
-
-  // Listen for admin panel changes on user balance, plans, transactions, kyc, or gateways
-  useEffect(() => {
-    const handleAdminSync = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      // Synchronize active user state if the changed email matches
-      if (customEvent.detail && (customEvent.detail.email === user.email || customEvent.detail.email === '*')) {
-        if (isSupabaseConfigured()) {
-          supabase
-            .from('profiles')
-            .select('*')
-            .eq('email', user.email.toLowerCase().trim())
-            .maybeSingle()
-            .then(({ data: dbData, error }) => {
-              if (error) return;
-              if (dbData) {
-                const loadedBalance = dbData.balance || 0;
-                const loadedProfit = dbData.total_profit || 0;
-                const loadedWithdrawals = dbData.total_withdrawals || 0;
-                const loadedInvestments = dbData.total_investments || 0;
-                const loadedPlans = dbData.active_plans ? (typeof dbData.active_plans === 'string' ? JSON.parse(dbData.active_plans) : dbData.active_plans) : [];
-                const loadedKyc = {
-                  status: dbData.kyc_status || 'Unregistered',
-                  fullName: dbData.kyc_full_name || dbData.name || '',
-                  documentType: dbData.kyc_doc_type || 'National ID Card',
-                  documentNumber: dbData.kyc_doc_num || '',
-                  country: dbData.country || 'United States',
-                  submittedAt: dbData.kyc_submitted_at,
-                  uploadedFileName: dbData.kyc_file_name,
-                  uploadedFileBase64: dbData.kyc_file_base64
-                };
-                const loadedTx = dbData.transactions ? (typeof dbData.transactions === 'string' ? JSON.parse(dbData.transactions) : dbData.transactions) : [];
-
-                setBalance(loadedBalance);
-                setTotalProfit(loadedProfit);
-                setTotalWithdrawals(loadedWithdrawals);
-                setTotalInvestments(loadedInvestments);
-                setActivePlans(loadedPlans);
-                setKyc(loadedKyc);
-                setTransactions(loadedTx);
-
-                const stateObj = {
-                  balance: loadedBalance,
-                  totalProfit: loadedProfit,
-                  totalWithdrawals: loadedWithdrawals,
-                  totalInvestments: loadedInvestments,
-                  activePlans: loadedPlans,
-                  kyc: loadedKyc,
-                  transactions: loadedTx
-                };
-                localStorage.setItem(`linkfluence_user_data_${user.email}`, JSON.stringify(stateObj));
-              }
-            });
-        } else {
-          const key = `linkfluence_user_data_${user.email}`;
-          const saved = localStorage.getItem(key);
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved);
-              if (parsed.balance !== undefined) setBalance(parsed.balance);
-              if (parsed.totalProfit !== undefined) setTotalProfit(parsed.totalProfit);
-              if (parsed.totalWithdrawals !== undefined) setTotalWithdrawals(parsed.totalWithdrawals);
-              if (parsed.totalInvestments !== undefined) setTotalInvestments(parsed.totalInvestments);
-              if (parsed.activePlans !== undefined) setActivePlans(parsed.activePlans);
-              if (parsed.kyc !== undefined) setKyc(parsed.kyc);
-              if (parsed.transactions !== undefined) setTransactions(parsed.transactions);
-            } catch (err) {
-              console.error("Failed to sync on administrative event", err);
-            }
           }
         }
       }
-      
-      // Also sync active investment plans config changes if any
-      const plansSaved = localStorage.getItem('linkfluence_investment_plans');
-      if (plansSaved) {
-        try {
-          setPlans(JSON.parse(plansSaved));
-        } catch (err) {}
+
+      if (!cancelled) setIsHydrating(false);
+    };
+
+    hydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, [user.email]);
+
+  // Listen for admin panel changes on user balance, plans, transactions, kyc
+  useEffect(() => {
+    const handleAdminSync = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail && (customEvent.detail.email === user.email || customEvent.detail.email === '*')) {
+        reloadFromSupabase();
       }
     };
 
@@ -313,34 +199,8 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
     };
   }, [user.email]);
 
-  // Listen for admin panel demoFundBoost changes
-  const prevBoostRef = React.useRef<number>(0);
-  React.useEffect(() => {
-    const currentBoost = (user as any)?.demoFundBoost || 0;
-    if (currentBoost > prevBoostRef.current) {
-      const delta = currentBoost - prevBoostRef.current;
-      prevBoostRef.current = currentBoost;
-      
-      setBalance(prev => {
-        const nextBalance = parseFloat((prev + delta).toFixed(2));
-        const key = `linkfluence_user_data_${user.email}`;
-        const stateObj = {
-          balance: nextBalance,
-          totalProfit,
-          totalWithdrawals,
-          totalInvestments,
-          activePlans,
-          kyc,
-          transactions
-        };
-        localStorage.setItem(key, JSON.stringify(stateObj));
-        return nextBalance;
-      });
-    }
-  }, [(user as any)?.demoFundBoost, user.email]);
-
-  // Save to LocalStorage whenever changes happen
-  const saveState = (
+  // Save to Supabase whenever dashboard state changes
+  const saveState = async (
     newBalance: number,
     newProfit: number,
     newWithdrawals: number,
@@ -349,49 +209,28 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
     newKyc: KYCData,
     newTx: Transaction[]
   ) => {
-    const key = `linkfluence_user_data_${user.email}`;
-    const stateObj = {
-      balance: newBalance,
-      totalProfit: newProfit,
-      totalWithdrawals: newWithdrawals,
-      totalInvestments: newInvestments,
-      activePlans: newPlans,
-      kyc: newKyc,
-      transactions: newTx
-    };
-    localStorage.setItem(key, JSON.stringify(stateObj));
+    if (!isSupabaseConfigured()) return;
 
-    if (isSupabaseConfigured()) {
-      const dbProfile = {
-        name: user.name,
-        email: user.email.toLowerCase().trim(),
-        country: user.country,
-        phone: user.phone,
-        balance: newBalance,
-        total_profit: newProfit,
-        total_withdrawals: newWithdrawals,
-        total_investments: newInvestments,
-        kyc_status: newKyc.status,
-        kyc_submitted_file: newKyc.status !== 'Unregistered',
-        kyc_approved: newKyc.status === 'Approved',
-        kyc_doc_type: newKyc.documentType,
-        kyc_doc_num: newKyc.documentNumber,
-        kyc_file_name: newKyc.uploadedFileName,
-        kyc_file_base64: newKyc.uploadedFileBase64,
-        kyc_full_name: newKyc.fullName,
-        active_plans: newPlans,
-        transactions: newTx
-      };
-
-      supabase
-        .from('profiles')
-        .upsert(dbProfile, { onConflict: 'email' })
-        .then(({ error }) => {
-          if (error) {
-            console.error("Could not sync state to Supabase:", error);
-          }
-        });
+    let uid = authUserId;
+    if (!uid) {
+      const authUser = await supabaseService.getCurrentUser();
+      uid = authUser?.id || null;
+      if (uid) setAuthUserId(uid);
     }
+    if (!uid) return;
+
+    const ok = await supabaseService.saveProfile(
+      buildProfilePayload(uid, user, {
+        balance: newBalance,
+        totalProfit: newProfit,
+        totalWithdrawals: newWithdrawals,
+        totalInvestments: newInvestments,
+        activePlans: newPlans,
+        kyc: newKyc,
+        transactions: newTx,
+      })
+    );
+    if (!ok) console.error('Could not sync state to Supabase');
   };
 
   // Real-time Yield accumulation tick simulator (increment accrued interest every 15 seconds)
@@ -434,90 +273,140 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
   const [kycLoading, setKycLoading] = useState(false);
   const kycFileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleKYCSubmit = (e: React.FormEvent) => {
+  const handleKYCSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!kycFullName.trim() || !kycDocNum.trim()) {
-      triggerToast("Please complete all KYC input parameters.");
+      triggerToast('Please complete all KYC input parameters.');
       return;
     }
     setKycLoading(true);
-    setTimeout(() => {
+
+    try {
+      let uploadedFilePath: string | undefined;
+      let uploadedFileName: string | undefined;
+
+      if (kycPendingFileRef.current && isSupabaseConfigured()) {
+        let uid = authUserId;
+        if (!uid) {
+          const authUser = await supabaseService.getCurrentUser();
+          uid = authUser?.id || null;
+          if (uid) setAuthUserId(uid);
+        }
+        if (!uid) throw new Error('You must be signed in to upload KYC documents.');
+
+        const upload = await supabaseService.uploadKycDocument(uid, kycPendingFileRef.current);
+        if (upload) {
+          uploadedFilePath = upload.path;
+          uploadedFileName = upload.fileName;
+        }
+      } else if (kycSubmittedFile) {
+        uploadedFileName = kycFileName;
+      }
+
       const nextKyc: KYCData = {
         status: 'Pending',
         fullName: kycFullName,
         documentType: kycDocType,
         documentNumber: kycDocNum,
         country: user.country,
-        submittedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-        uploadedFileName: kycSubmittedFile ? kycFileName : undefined,
-        uploadedFileBase64: kycSubmittedFile ? kycFileBase64 : undefined,
+        submittedAt: new Date().toISOString(),
+        uploadedFileName,
+        uploadedFilePath,
       };
+
       setKyc(nextKyc);
-      setKycLoading(false);
+      kycPendingFileRef.current = null;
       triggerToast("KYC Application submitted! Status set to 'Pending Review'.");
-      
-      saveState(balance, totalProfit, totalWithdrawals, totalInvestments, activePlans, nextKyc, transactions);
-    }, 1500);
+      await saveState(balance, totalProfit, totalWithdrawals, totalInvestments, activePlans, nextKyc, transactions);
+    } catch (err: any) {
+      triggerToast(err.message || 'KYC submission failed. Please try again.');
+    } finally {
+      setKycLoading(false);
+    }
   };
 
-  // Deposit Action states
   const [depositAmt, setDepositAmt] = useState<string>('250');
   const [depositMethod, setDepositMethod] = useState<string>('usdt-trc');
-  const [depositSimulating, setDepositSimulating] = useState(false);
+  const [depositSubmitting, setDepositSubmitting] = useState(false);
+  const [showDepositConfirmModal, setShowDepositConfirmModal] = useState(false);
+  const [showDepositSuccessModal, setShowDepositSuccessModal] = useState(false);
+  const [submittedDepositAmount, setSubmittedDepositAmount] = useState<number | null>(null);
+  const [depositProofFile, setDepositProofFile] = useState<File | null>(null);
+  const [depositProofFileName, setDepositProofFileName] = useState('');
+  const depositProofInputRef = useRef<HTMLInputElement>(null);
   const [cardName, setCardName] = useState('');
   const [cardNumber, setCardNumber] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvv, setCardCvv] = useState('');
 
-  // Dynamic Payment Gateways state synchronized from administration registers
-  const [paymentGateways, setPaymentGateways] = useState<any[]>(() => {
-    const saved = localStorage.getItem('linkfluence_payment_methods');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) {}
+  const resetDepositProof = () => {
+    setDepositProofFile(null);
+    setDepositProofFileName('');
+    if (depositProofInputRef.current) {
+      depositProofInputRef.current.value = '';
     }
-    return [
-      { id: 'usdt-trc', name: 'USDT (TRC20)', type: 'crypto', address: 'TLeS3Z9rXv89U6p7YQ18n5DmVyF9oWk2bX', enabled: true, desc: 'TRON low-fee stablecoin network settlement.' },
-      { id: 'usdt-erc', name: 'USDT (ERC20)', type: 'crypto', address: '0x78a9c3b88d01ef0023a8901cb001f3df91a8291f', enabled: true, desc: 'Ethereum standard network stablecoin transaction routing.' },
-      { id: 'btc', name: 'Bitcoin (BTC)', type: 'crypto', address: 'bc1q9p3a5d8f6k7m2x1y8g9n3w4r0t5y8j0u2a', enabled: true, desc: 'Direct Satoshis on-chain allocation address.' },
-      { id: 'credit', name: 'Credit Card', type: 'gateway', address: 'Visa / Mastercard Automated Terminal', enabled: true, desc: 'Instant fiat billing using secure merchant APIs.' },
-      { id: 'paypal', name: 'PayPal Gateway', type: 'gateway', address: 'paypal-sandbox@linkfluence.com', enabled: true, desc: 'Simulated fast authentication payment flow.' },
-      { id: 'bank', name: 'Bank Wire', type: 'bank', address: 'BENEFICIARY: LINKFLUENCE GLOBAL LTD, Bank Ref: LF-PORTAL', enabled: true, desc: 'Settle institutional wires through bank routing.' }
-    ];
-  });
+  };
 
-  // Reload payment gateways when user shifts views to dynamic tabs
-  useEffect(() => {
-    const saved = localStorage.getItem('linkfluence_payment_methods');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setPaymentGateways(parsed);
-        // Automatically default selected gateway if original is deactivated or deleted
-        if (parsed.length > 0 && !parsed.some((g: any) => g.id === depositMethod && g.enabled)) {
-          const firstActive = parsed.find((g: any) => g.enabled);
-          if (firstActive) setDepositMethod(firstActive.id);
-        }
-      } catch (e) {}
-    }
-  }, [activeTab]);
+  const closeDepositConfirmModal = () => {
+    setShowDepositConfirmModal(false);
+    resetDepositProof();
+  };
 
-  const handleDepositConfirm = (e: React.FormEvent) => {
+  const handleDepositContinue = (e: React.FormEvent) => {
     e.preventDefault();
     const amountNum = parseFloat(depositAmt);
     if (isNaN(amountNum) || amountNum <= 0) {
-      triggerToast("Please input a positive numeric deposit value.");
+      triggerToast('Please input a positive numeric deposit value.');
       return;
     }
     if (amountNum < 10) {
-      triggerToast("Minimum deposit constraint: $10.");
+      triggerToast('Minimum deposit constraint: $10.');
+      return;
+    }
+    if (depositMethod === 'credit' && (!cardName || !cardNumber)) {
+      triggerToast('Please complete card details before continuing.');
+      return;
+    }
+    resetDepositProof();
+    setShowDepositConfirmModal(true);
+  };
+
+  const handleDepositProofSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amountNum = parseFloat(depositAmt);
+    if (isNaN(amountNum) || amountNum <= 0) return;
+
+    if (!depositProofFile) {
+      triggerToast('Proof of deposit is required. Please upload a receipt or transfer screenshot.');
       return;
     }
 
-    setDepositSimulating(true);
+    if (!isSupabaseConfigured()) {
+      triggerToast('Deposits require Supabase configuration.');
+      return;
+    }
 
-    setTimeout(() => {
+    let uid = authUserId;
+    if (!uid) {
+      const authUser = await supabaseService.getCurrentUser();
+      uid = authUser?.id || null;
+      if (uid) setAuthUserId(uid);
+    }
+    if (!uid) {
+      triggerToast('Please sign in again to submit your deposit.');
+      return;
+    }
+
+    setDepositSubmitting(true);
+
+    try {
+      const upload = await supabaseService.uploadDepositProof(uid, depositProofFile);
+      if (!upload) {
+        throw new Error('Could not upload proof of deposit.');
+      }
+
       const txRef = 'TXN-' + Math.floor(100000 + Math.random() * 900000) + '-LF';
-      const matchedGateway = paymentGateways.find(g => g.id === depositMethod);
+      const matchedGateway = paymentGateways.find((g) => g.id === depositMethod);
       const actualMethodLabel = matchedGateway ? matchedGateway.name : 'Administrative Gate';
 
       const newTx: Transaction = {
@@ -525,22 +414,36 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
         type: 'deposit',
         amount: amountNum,
         methodOrPlan: actualMethodLabel,
-        destinationOrDetail: matchedGateway ? (matchedGateway.address || 'Routing Terminal') : 'Proxy Address',
+        destinationOrDetail: matchedGateway
+          ? matchedGateway.address || 'Routing Terminal'
+          : 'Proxy Address',
         date: new Date().toISOString().replace('T', ' ').substring(0, 16),
         status: 'Pending',
-        reference: txRef
+        reference: txRef,
+        proofFilePath: upload.path,
+        proofFileName: upload.fileName,
       };
 
       const nextTxList = [newTx, ...transactions];
-
       setTransactions(nextTxList);
-      setDepositSimulating(false);
-      setDepositAmt('250');
-      triggerToast(`Deposit of $${amountNum} initiated! Awaiting operator validation.`);
+      await saveState(balance, totalProfit, totalWithdrawals, totalInvestments, activePlans, kyc, nextTxList);
 
-      saveState(balance, totalProfit, totalWithdrawals, totalInvestments, activePlans, kyc, nextTxList);
-      setActiveTab('home');
-    }, 2500);
+      setSubmittedDepositAmount(amountNum);
+      setShowDepositConfirmModal(false);
+      setShowDepositSuccessModal(true);
+      setDepositAmt('250');
+      resetDepositProof();
+    } catch (err: any) {
+      triggerToast(err.message || 'Deposit submission failed. Please try again.');
+    } finally {
+      setDepositSubmitting(false);
+    }
+  };
+
+  const handleDepositSuccessDismiss = () => {
+    setShowDepositSuccessModal(false);
+    setSubmittedDepositAmount(null);
+    setActiveTab('home');
   };
 
   // Withdrawal States
@@ -548,6 +451,16 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
   const [withdrawMethod, setWithdrawMethod] = useState<string>('usdt-trc');
   const [withdrawDetail, setWithdrawDetail] = useState<string>('');
   const [withdrawSimulating, setWithdrawSimulating] = useState(false);
+
+  useEffect(() => {
+    if (paymentGateways.length === 0) return;
+    setDepositMethod((current) =>
+      paymentGateways.some((g) => g.id === current && g.enabled) ? current : paymentGateways[0].id
+    );
+    setWithdrawMethod((current) =>
+      paymentGateways.some((g) => g.id === current && g.enabled) ? current : paymentGateways[0].id
+    );
+  }, [paymentGateways]);
 
   // Bank transfer states
   const [bankName, setBankName] = useState<string>('');
@@ -808,7 +721,12 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
   });
 
   return (
-    <div className="w-full bg-[#FAFAF8] min-h-screen pt-6 md:pt-8 pb-24 lg:pb-12 px-4 md:px-8 max-w-[88rem] mx-auto flex flex-col lg:flex-row gap-6 md:gap-8 transition-all duration-300">
+    <div className="w-full bg-[#FAFAF8] min-h-screen pt-6 md:pt-8 pb-24 lg:pb-12 px-4 md:px-8 max-w-[88rem] mx-auto flex flex-col lg:flex-row gap-6 md:gap-8 transition-all duration-300 relative font-sans">
+      {isHydrating && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#FAFAF8]/80 backdrop-blur-sm rounded-2xl">
+          <p className="text-sm text-gray-500 font-medium">Loading your dashboard…</p>
+        </div>
+      )}
       
       {/* SIDEBAR NAVIGATION PANEL (DESKTOP ONLY) */}
       {!isMenuHidden && (
@@ -1155,6 +1073,7 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
                             onChange={(e) => {
                               const file = e.target.files?.[0];
                               if (file) {
+                                kycPendingFileRef.current = file;
                                 setKycSubmittedFile(true);
                                 setKycFileName(file.name);
                                 const r = new FileReader();
@@ -1164,7 +1083,7 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
                                   }
                                 };
                                 r.readAsDataURL(file);
-                                triggerToast(`Picture "${file.name}" uploaded successfully!`);
+                                triggerToast(`Picture "${file.name}" ready for submission.`);
                               }
                             }}
                           />
@@ -1457,7 +1376,7 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
               
               {/* Payment selection list & Form */}
               <div className="lg:col-span-7 bg-white border border-gray-100/40 rounded-2xl p-6 shadow-xs">
-                <form onSubmit={handleDepositConfirm} className="flex flex-col gap-4">
+                <form onSubmit={handleDepositContinue} className="flex flex-col gap-4">
                   
                   <div className="flex flex-col gap-1.5">
                     <label className="text-xs font-semibold text-gray-500 block">1. Enter Deposit Amount ($)</label>
@@ -1554,17 +1473,10 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
 
                   <button 
                     type="submit"
-                    disabled={depositSimulating || (depositMethod === 'credit' && (!cardName || !cardNumber))}
+                    disabled={depositMethod === 'credit' && (!cardName || !cardNumber)}
                     className="w-full bg-[#3CB371] hover:bg-[#2E8B57] disabled:bg-gray-100 disabled:text-gray-400 text-white font-semibold py-3 rounded-xl transition duration-150 text-xs sm:text-base cursor-pointer shadow-sm mt-2 flex items-center justify-center gap-2"
                   >
-                    {depositSimulating ? (
-                      <>
-                        <RefreshCw size={16} className="animate-spin" />
-                        <span>Verifying Deposit Request on Gateway Blockchain...</span>
-                      </>
-                    ) : (
-                      'Confirm & Complete Deposit File'
-                    )}
+                    Review & Submit Deposit
                   </button>
 
                 </form>
@@ -1622,9 +1534,6 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
                           </div>
                         </div>
 
-                        <p className="text-[10px] text-gray-400 font-mono leading-relaxed bg-[#FAFAF8] p-2.5 rounded-lg border border-gray-100">
-                          ℹ Dynamic Channel: {activeGateway.name} ({activeGateway.type}). Transactions are monitored by the compliance queue and settle automatically inside sandbox.
-                        </p>
                       </div>
                     );
                   })()}
@@ -1937,13 +1846,13 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-bold text-gray-400 uppercase font-mono">Country Location</label>
                       <div className="relative">
-                        <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400"><Globe size={16} /></span>
-                        <input 
-                          type="text" 
-                          required
-                          className="w-full border border-gray-150 rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none text-black bg-white"
+                        <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400 pointer-events-none z-10">
+                          <Globe size={16} />
+                        </span>
+                        <CountrySelect
+                          className="w-full border border-gray-150 rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3CB371]/30 text-black bg-white appearance-none cursor-pointer"
                           value={profileCountry}
-                          onChange={e => setProfileCountry(e.target.value)}
+                          onChange={setProfileCountry}
                         />
                       </div>
                     </div>
@@ -2022,6 +1931,127 @@ export default function UserDashboard({ user, onUpdateUser, onLogout, triggerToa
         )}
 
       </main>
+
+      {/* Deposit confirmation modal */}
+      {showDepositConfirmModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 text-left animate-[fadeIn_0.2s_ease-out]">
+            <h3 className="text-lg font-bold text-black font-sans">Confirm Deposit</h3>
+            <p className="text-xs text-gray-500 mt-1 mb-5">
+              Review your deposit details and upload proof of payment before submitting.
+            </p>
+
+            <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 mb-5 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Amount</span>
+                <span className="font-bold font-mono text-black">
+                  ${parseFloat(depositAmt || '0').toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Payment method</span>
+                <span className="font-semibold text-black text-right">
+                  {paymentGateways.find((g) => g.id === depositMethod)?.name || 'Selected method'}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleDepositProofSubmit} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-gray-700">
+                  Proof of deposit <span className="text-rose-500">*</span>
+                </label>
+                <p className="text-[11px] text-gray-400 leading-relaxed">
+                  Upload a screenshot or receipt showing your transfer (JPEG, PNG, or PDF).
+                </p>
+                <input
+                  type="file"
+                  ref={depositProofInputRef}
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  required
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setDepositProofFile(file);
+                      setDepositProofFileName(file.name);
+                    } else {
+                      setDepositProofFile(null);
+                      setDepositProofFileName('');
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => depositProofInputRef.current?.click()}
+                  className={`w-full py-3 border rounded-xl text-xs font-semibold transition flex items-center justify-center gap-2 cursor-pointer ${
+                    depositProofFile
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  <Upload size={14} />
+                  {depositProofFileName || 'Upload proof of deposit'}
+                </button>
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={closeDepositConfirmModal}
+                  disabled={depositSubmitting}
+                  className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-50 transition disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={depositSubmitting || !depositProofFile}
+                  className="flex-1 py-2.5 rounded-xl bg-[#3CB371] hover:bg-[#2E8B57] disabled:bg-gray-100 disabled:text-gray-400 text-white text-sm font-semibold transition flex items-center justify-center gap-2"
+                >
+                  {depositSubmitting ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      Submitting…
+                    </>
+                  ) : (
+                    'Submit Deposit'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Deposit pending review success modal */}
+      {showDepositSuccessModal && submittedDepositAmount !== null && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 text-center animate-[fadeIn_0.2s_ease-out]">
+            <div className="w-14 h-14 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4">
+              <Clock size={28} />
+            </div>
+            <h3 className="text-lg font-bold text-black font-sans">Deposit Submitted</h3>
+            <p className="text-sm text-gray-600 mt-3 leading-relaxed">
+              Your deposit of{' '}
+              <strong className="font-mono text-black">
+                ${submittedDepositAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </strong>{' '}
+              is pending review.
+            </p>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+              Our team will verify your proof of payment and credit your wallet once approved.
+            </p>
+            <button
+              type="button"
+              onClick={handleDepositSuccessDismiss}
+              className="w-full mt-6 py-2.5 rounded-xl bg-black hover:bg-gray-800 text-white text-sm font-semibold transition"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* MOBILE FLOATING BOTTOM NAVIGATION BAR */}
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[92%] max-w-sm bg-white/95 backdrop-blur-md border border-gray-150/40 rounded-2xl shadow-xl py-2 px-3 flex items-center justify-around z-[48] lg:hidden">

@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowRight, HelpCircle, Check, Play, Sparkles, BookOpen, Clock, Activity, Menu, X, User, CheckCircle2, XCircle } from 'lucide-react';
 import LogoIcon from './components/LogoIcon';
-import DashboardMockup from './components/DashboardMockup';
+import DashboardMockup, { HeroDashboardScrollPanel } from './components/DashboardMockup';
 import Modal from './components/Modal';
 import OnboardingStepForm from './components/OnboardingStepForm';
 import MarketplaceSandbox from './components/MarketplaceSandbox';
 import AuthModal from './components/AuthModal';
 import UserDashboard from './components/UserDashboard';
 import AdminPanel from './components/AdminPanel';
-import { syncFromGlobalStorage } from './lib/sync';
+import { isSupabaseConfigured } from './lib/supabaseClient';
+import { supabaseService } from './lib/supabaseService';
 
 // Hero Brands list
 const HERO_BRANDS = [
@@ -37,17 +38,8 @@ export default function App() {
   // Modal configurations
   const [activeModal, setActiveModal] = useState<'none' | 'onboarding' | 'plans' | 'marketplace' | 'help' | 'signup' | 'signin' | 'admin'>('none');
   const [currentUser, setCurrentUser] = useState<{ name: string; email: string; country: string; phone: string } | null>(null);
-
-  const getKycStatus = (email: string): 'Unregistered' | 'Pending' | 'Approved' | 'Rejected' => {
-    try {
-      const dataStr = localStorage.getItem(`linkfluence_user_data_${email}`);
-      if (dataStr) {
-        const data = JSON.parse(dataStr);
-        return data?.kyc?.status || 'Unregistered';
-      }
-    } catch (e) {}
-    return 'Unregistered';
-  };
+  const [kycStatus, setKycStatus] = useState<'Unregistered' | 'Pending' | 'Approved' | 'Rejected'>('Unregistered');
+  const [authLoading, setAuthLoading] = useState(true);
   const [selectedPlanName, setSelectedPlanName] = useState<string>('Pro');
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -100,80 +92,84 @@ export default function App() {
   const [helpSearch, setHelpSearch] = useState('');
   const [helpAnswer, setHelpAnswer] = useState<string | null>(null);
 
+  const restoreUserFromSession = async (session: { user: { id: string; email?: string; user_metadata?: Record<string, string> } }) => {
+    if (!session.user.email) return;
+    const profile = await supabaseService.fetchProfile(session.user.id, session.user.email);
+    const restored = {
+      name: profile?.name || session.user.user_metadata?.name || session.user.email.split('@')[0],
+      email: session.user.email.toLowerCase().trim(),
+      country: profile?.country || session.user.user_metadata?.country || 'United States',
+      phone: profile?.phone || session.user.user_metadata?.phone || '',
+    };
+    setKycStatus(profile?.kyc_status || 'Unregistered');
+    setCurrentUser(restored);
+  };
+
   // Auto restore sessions and sync profile details
   useEffect(() => {
+    let mounted = true;
+
     const initializeApp = async () => {
-      // First, fetch the global registry from server storage to ensure newest registrations are loaded
-      await syncFromGlobalStorage();
-
-      const isFirstTime = !localStorage.getItem('linkfluence_system_initialized');
-
-      // Reconstruct/verify the roster with all saved profiles in local storage to prevent any missing users
-      const obsoleteMockEmails = ['harris.liam@linkfluence.io', 'chloe.s@linkfluence.com', 's.jenkins@affiliates.net', 'anthonygastaz@gmail.com'];
-      const localProfileEmails: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('linkfluence_user_profile_')) {
-          const email = key.substring('linkfluence_user_profile_'.length);
-          if (email) {
-            localProfileEmails.push(email);
-          }
+      try {
+        if (!isSupabaseConfigured()) {
+          if (mounted) setAuthLoading(false);
+          return;
         }
-      }
 
-      const defaultSeed = isFirstTime ? ['graphicbullng@gmail.com'] : [];
-      let roster: string[] = [...defaultSeed];
-      const savedRoster = localStorage.getItem('linkfluence_users_roster');
-      if (savedRoster) {
-        try {
-          const parsed = JSON.parse(savedRoster);
-          if (Array.isArray(parsed)) {
-            const unique = new Set([...defaultSeed, ...parsed, ...localProfileEmails]);
-            obsoleteMockEmails.forEach(obs => unique.delete(obs));
-            roster = Array.from(unique);
-          }
-        } catch (e) {}
-      } else {
-        const unique = new Set([...defaultSeed, ...localProfileEmails]);
-        obsoleteMockEmails.forEach(obs => unique.delete(obs));
-        roster = Array.from(unique);
-      }
-      localStorage.setItem('linkfluence_users_roster', JSON.stringify(roster));
-
-      // Seed default graphicbullng details if first time
-      if (isFirstTime) {
-        if (!localStorage.getItem(`linkfluence_user_profile_graphicbullng@gmail.com`)) {
-          localStorage.setItem(`linkfluence_user_profile_graphicbullng@gmail.com`, JSON.stringify({ name: 'Graphic Bull', email: 'graphicbullng@gmail.com', country: 'United States', phone: '+1 (555) 019-2831' }));
+        const session = await supabaseService.getSession();
+        if (session?.user?.email && mounted) {
+          await restoreUserFromSession(session);
         }
-        if (!localStorage.getItem(`linkfluence_user_data_graphicbullng@gmail.com`)) {
-          localStorage.setItem(`linkfluence_user_data_graphicbullng@gmail.com`, JSON.stringify({
-            balance: 0.00,
-            totalProfit: 0.00,
-            totalWithdrawals: 0.00,
-            totalInvestments: 0.00,
-            activePlans: [],
-            kyc: { status: 'Unregistered', fullName: '', documentType: 'National ID Card', documentNumber: '', country: 'United States' },
-            transactions: []
-          }));
-        }
-        localStorage.setItem('linkfluence_system_initialized', 'true');
-      }
-
-      const activeEmail = localStorage.getItem('linkfluence_active_user_email');
-      if (activeEmail) {
-        try {
-          const saved = localStorage.getItem(`linkfluence_user_profile_${activeEmail}`);
-          if (saved) {
-            setCurrentUser(JSON.parse(saved));
-          }
-        } catch (e) {
-          console.error("Failed to restore current user", e);
-        }
+      } finally {
+        if (mounted) setAuthLoading(false);
       }
     };
 
     initializeApp();
+
+    if (isSupabaseConfigured()) {
+      const { unsubscribe } = supabaseService.onAuthStateChange(async (session) => {
+        if (!mounted) return;
+        if (session?.user?.email) {
+          await restoreUserFromSession(session);
+        } else {
+          setCurrentUser(null);
+          setKycStatus('Unregistered');
+        }
+      });
+
+      return () => {
+        mounted = false;
+        unsubscribe();
+      };
+    }
+
+    return () => {
+      mounted = false;
+    };
   }, []);
+
+  useEffect(() => {
+    if (!currentUser || !isSupabaseConfigured()) return;
+
+    const refreshKyc = async () => {
+      const authUser = await supabaseService.getCurrentUser();
+      if (!authUser?.id) return;
+      const profile = await supabaseService.fetchProfile(authUser.id, currentUser.email);
+      setKycStatus(profile?.kyc_status || 'Unregistered');
+    };
+
+    refreshKyc();
+
+    const onDataUpdated = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.email === currentUser.email || detail?.email === '*') {
+        refreshKyc();
+      }
+    };
+    window.addEventListener('linkfluence_data_updated', onDataUpdated);
+    return () => window.removeEventListener('linkfluence_data_updated', onDataUpdated);
+  }, [currentUser?.email]);
 
   const triggerToast = (message: string) => {
     setToastMessage(message);
@@ -283,47 +279,26 @@ export default function App() {
     }
   };
 
-  const handleAuthSuccess = (userData: { name: string; email: string; country: string; phone: string }) => {
+  const handleUserLogout = async () => {
+    await supabaseService.signOut();
+    setCurrentUser(null);
+    setKycStatus('Unregistered');
+    triggerToast('Signed out of your Affiliate Associate Program account session.');
+  };
+
+  const handleAuthSuccess = async (userData: { name: string; email: string; country: string; phone: string }) => {
     const normalizedEmail = userData.email.trim().toLowerCase();
-    const updatedUserData = { ...userData, email: normalizedEmail };
-    localStorage.setItem('linkfluence_active_user_email', normalizedEmail);
-    localStorage.setItem(`linkfluence_user_profile_${normalizedEmail}`, JSON.stringify(updatedUserData));
-    
-    // Seed user account data if not present
-    const dataKey = `linkfluence_user_data_${normalizedEmail}`;
-    if (!localStorage.getItem(dataKey)) {
-      const defaultData = {
-        balance: 0.00,
-        totalProfit: 0.00,
-        totalWithdrawals: 0.00,
-        totalInvestments: 0.00,
-        activePlans: [],
-        kyc: { 
-          status: 'Unregistered', 
-          fullName: updatedUserData.name, 
-          documentType: 'National ID Card', 
-          documentNumber: '', 
-          country: updatedUserData.country || 'United States' 
-        },
-        transactions: []
-      };
-      localStorage.setItem(dataKey, JSON.stringify(defaultData));
+    setCurrentUser({ ...userData, email: normalizedEmail });
+
+    if (isSupabaseConfigured()) {
+      const authUser = await supabaseService.getCurrentUser();
+      if (authUser?.id) {
+        const profile = await supabaseService.fetchProfile(authUser.id, normalizedEmail);
+        setKycStatus(profile?.kyc_status || 'Unregistered');
+      }
     }
 
-    // Add to roster index
-    let roster: string[] = [];
-    const savedRoster = localStorage.getItem('linkfluence_users_roster');
-    if (savedRoster) {
-      try { roster = JSON.parse(savedRoster); } catch (e) {}
-    }
-    if (!roster.includes(normalizedEmail)) {
-      roster.push(normalizedEmail);
-      localStorage.setItem('linkfluence_users_roster', JSON.stringify(roster));
-    }
-
-    setCurrentUser(updatedUserData);
-    window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email: normalizedEmail } }));
-    triggerToast(`Welcome back, ${updatedUserData.name}! Secure session initiated successfully.`);
+    triggerToast(`Welcome back, ${userData.name}! Secure session initiated successfully.`);
   };
 
   const handleHelpQuery = (e: React.FormEvent) => {
@@ -341,6 +316,15 @@ export default function App() {
     }
   };
 
+  if (authLoading && activeModal !== 'admin') {
+    return (
+      <div id="linkfluence-app-root" className="flex flex-col items-center justify-center bg-[#FAFAF7] min-h-screen">
+        <LogoIcon className="text-[#3CB371] mb-4 animate-pulse" size="40" />
+        <p className="text-sm text-gray-500 font-medium">Restoring your session…</p>
+      </div>
+    );
+  }
+
   if (activeModal === 'admin') {
     return (
       <div id="linkfluence-app-root" className="flex flex-col bg-[#FAFAF7] relative min-h-screen">
@@ -348,9 +332,6 @@ export default function App() {
           <AdminPanel
             currentUser={currentUser}
             onUpdateCurrentUser={(updated) => {
-              if (updated && updated.email) {
-                localStorage.setItem(`linkfluence_user_profile_${updated.email}`, JSON.stringify(updated));
-              }
               setCurrentUser(updated);
             }}
             triggerToast={triggerToast}
@@ -378,9 +359,10 @@ export default function App() {
             {/* Left branding */}
             <div 
               className="flex items-center gap-1.5 sm:gap-2 cursor-pointer hover:opacity-85 transition-opacity"
-              onClick={() => {
-                localStorage.removeItem('linkfluence_active_user_email');
+              onClick={async () => {
+                await supabaseService.signOut();
                 setCurrentUser(null);
+                setKycStatus('Unregistered');
                 triggerToast("Returned to homepage.");
               }}
               title="Return to homepage"
@@ -400,17 +382,14 @@ export default function App() {
                 <div className="hidden xs:flex flex-col text-left">
                   <span className="text-xs font-bold text-black font-sans leading-none truncate max-w-[65px] sm:max-w-[120px] flex items-center gap-1">
                     <span className="truncate">{currentUser.name}</span>
-                    {getKycStatus(currentUser.email) === 'Approved' && (
+                    {kycStatus === 'Approved' && (
                       <CheckCircle2 size={12} className="text-[#3CB371] shrink-0" title="KYC Approved Badge" />
                     )}
                   </span>
                   <span className="text-[9px] font-mono font-semibold text-gray-400 capitalize mt-0.5 hidden sm:inline-block">{currentUser.country}</span>
                 </div>
                 <button
-                  onClick={() => {
-                    setCurrentUser(null);
-                    triggerToast("Signed out of your Affiliate Associate Program account session.");
-                  }}
+                  onClick={handleUserLogout}
                   type="button"
                   className="text-[10px] sm:text-xs text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-full font-bold px-2 py-0.5 sm:py-1 cursor-pointer font-sans transition-all duration-150"
                 >
@@ -424,16 +403,9 @@ export default function App() {
         <UserDashboard
           user={currentUser}
           onUpdateUser={(updated) => {
-            if (updated && updated.email) {
-              localStorage.setItem(`linkfluence_user_profile_${updated.email}`, JSON.stringify(updated));
-            }
             setCurrentUser(updated);
           }}
-          onLogout={() => {
-            localStorage.removeItem('linkfluence_active_user_email');
-            setCurrentUser(null);
-            triggerToast("Signed out of your Affiliate Associate Program account session.");
-          }}
+          onLogout={handleUserLogout}
           triggerToast={triggerToast}
           onOpenAdmin={handleOpenAdmin}
         />
@@ -531,18 +503,14 @@ export default function App() {
                 <div className="flex flex-col text-left">
                   <span className="text-xs font-bold text-black font-sans leading-none flex items-center gap-1">
                     <span>{currentUser.name}</span>
-                    {getKycStatus(currentUser.email) === 'Approved' && (
+                    {kycStatus === 'Approved' && (
                       <CheckCircle2 size={11} className="text-[#3CB371] shrink-0" title="KYC Approved Badge" />
                     )}
                   </span>
                   <span className="text-[10px] font-mono font-semibold text-gray-400 capitalize">{currentUser.country}</span>
                 </div>
                 <button
-                  onClick={() => {
-                    localStorage.removeItem('linkfluence_active_user_email');
-                    setCurrentUser(null);
-                    triggerToast("Signed out of your Affiliate Associate Program account session.");
-                  }}
+                  onClick={handleUserLogout}
                   type="button"
                   className="text-xs text-red-500 hover:text-red-700 font-bold ml-2 cursor-pointer font-sans"
                 >
@@ -622,7 +590,7 @@ export default function App() {
                     <div className="flex flex-col text-left">
                       <span className="text-sm font-bold text-black font-sans leading-none flex items-center gap-1.5">
                         <span>{currentUser.name}</span>
-                        {getKycStatus(currentUser.email) === 'Approved' && (
+                        {kycStatus === 'Approved' && (
                           <CheckCircle2 size={12} className="text-[#3CB371] shrink-0" title="KYC Approved Badge" />
                         )}
                       </span>
@@ -632,9 +600,7 @@ export default function App() {
                   <button
                     onClick={() => {
                       setMobileMenuOpen(false);
-                      localStorage.removeItem('linkfluence_active_user_email');
-                      setCurrentUser(null);
-                      triggerToast("Signed out of your Affiliate Associate Program account session.");
+                      handleUserLogout();
                     }}
                     type="button"
                     className="w-full bg-red-50 hover:bg-red-100 text-red-600 font-bold py-3 rounded-xl text-center text-xs cursor-pointer transition"
@@ -671,76 +637,66 @@ export default function App() {
         )}
       </nav>
 
-      {/* 2. Hero Section Grouped Wrapper */}
-      <div className="h-auto lg:h-screen flex flex-col justify-end overflow-hidden w-full max-w-[88rem] mx-auto px-4 md:px-6 relative mb-4 md:mb-12">
-        <div 
-          className="relative w-full rounded-2xl overflow-hidden bg-white border border-gray-200 mt-2 md:mt-14 h-auto lg:h-[calc(100vh-84px)]"
-        >
-          {/* Premium Abstract mesh gradients behind the card bounds */}
+      {/* 2. Hero — fixed viewport height; dashboard side scrolls on focus/tap */}
+      <div className="w-full max-w-[88rem] mx-auto px-3 sm:px-4 md:px-6 relative mb-4 md:mb-12 pt-4 sm:pt-5 md:pt-24">
+        <div className="relative w-full rounded-xl sm:rounded-2xl bg-white border border-gray-200 overflow-hidden h-[calc(100dvh-6.5rem)] sm:h-[calc(100dvh-7rem)] md:h-[calc(100dvh-8rem)] lg:h-[calc(100vh-108px)] max-h-[820px] lg:max-h-none">
           <div className="absolute top-0 right-0 w-[50%] h-full bg-gradient-to-bl from-[#3CB371]/10 via-[#FAFAF7]/5 to-transparent pointer-events-none hidden lg:block z-0" />
 
-          {/* Core content grid split */}
-          <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 h-full items-stretch p-6 md:p-12 pt-10 md:pt-14 lg:pt-16">
-            
-            {/* Left Col - Product Messaging */}
-            <div className="lg:col-span-7 flex flex-col justify-start lg:justify-between h-full text-left gap-4 lg:gap-0">
-              <div className="flex flex-col items-start gap-4 md:gap-6">
-                
-                {/* Micro heading alert badge */}
-                <div className="flex items-center gap-1 bg-[#3CB371]/10 text-[#3CB371] px-3.5 py-1.5 rounded-full text-xs font-semibold animate-pulse">
-                  <Sparkles size={14} /> Global Affiliate Platform Launching
+          <div className="relative z-10 grid grid-cols-1 grid-rows-[auto_1fr] lg:grid-cols-12 lg:grid-rows-1 gap-3 sm:gap-5 lg:gap-8 h-full min-h-0 p-4 sm:p-5 md:p-8 lg:p-12 pt-5 sm:pt-6 lg:pt-14">
+            {/* Copy column — headline + CTA grouped; marquee pinned to bottom on desktop */}
+            <div className="lg:col-span-7 flex flex-col h-full min-h-0 gap-3 sm:gap-4 text-left overflow-visible">
+              <div className="flex flex-col items-start gap-2 sm:gap-3 lg:gap-4 shrink-0">
+                <div className="flex items-center gap-1 bg-[#3CB371]/10 text-[#3CB371] px-3 py-1 rounded-full text-[11px] sm:text-xs font-semibold">
+                  <Sparkles size={13} /> Global Platform Launching
                 </div>
 
-                <h1 className="text-black text-4xl md:text-6xl font-semibold leading-[1.08] max-w-xl" style={{ letterSpacing: '-0.04em' }}>
-                  Share Links.<br />
+                <h1
+                  className="text-black text-[1.65rem] leading-[1.08] sm:text-4xl md:text-5xl lg:text-6xl font-semibold max-w-xl"
+                  style={{ letterSpacing: '-0.04em' }}
+                >
+                  Share Links.
+                  <br />
                   <span className="text-[#3CB371]">Earn</span> Daily.
                 </h1>
 
-                <p 
-                  className="text-black/70 text-sm md:text-lg max-w-lg leading-relaxed md:-mt-1"
+                <p
+                  className="hidden sm:block text-black/70 text-sm md:text-base lg:text-lg max-w-lg leading-relaxed"
                   style={{ fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif" }}
                 >
-                  One subscription unlocks thousands of premium affiliate offers. Drop a link, track every click, and get paid the moment someone buys.
+                  One subscription unlocks premium affiliate offers. Drop a link, track every click, and get paid instantly.
                 </p>
 
-                {/* Primary Button group */}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full sm:w-auto mt-2">
+                <div className="flex flex-col gap-2 sm:gap-2.5 w-full sm:w-auto mt-1 sm:mt-2 relative z-20">
                   <button
                     onClick={() => setActiveModal('signup')}
                     type="button"
-                    className="inline-flex items-center justify-between sm:justify-start gap-3 bg-black text-white text-base font-semibold pl-8 pr-2.5 py-2.5 rounded-full hover:bg-gray-800 transition-all group cursor-pointer"
+                    className="inline-flex w-fit max-w-full items-center gap-2.5 sm:gap-3 bg-black text-white text-sm sm:text-base font-semibold pl-6 sm:pl-8 pr-2 sm:pr-2.5 py-2.5 sm:py-3 rounded-full hover:bg-gray-800 transition-all group cursor-pointer min-h-[44px]"
                   >
-                    <span>Join the program</span>
-                    <span className="bg-[#3CB371] rounded-full p-2 text-white group-hover:translate-x-1 transition-transform">
+                    <span className="whitespace-nowrap">Join the program</span>
+                    <span className="bg-[#3CB371] rounded-full p-2 text-white group-hover:translate-x-1 transition-transform shrink-0">
                       <ArrowRight size={18} />
                     </span>
                   </button>
-                </div>
 
-                {/* Customer Trust count line */}
-                <p className="text-black/55 text-xs font-medium flex items-center">
-                  <span className="w-2.5 h-2.5 rounded-full bg-[#3CB371] inline-block mr-2 animate-ping" />
-                  Over 12,000 creators paid out this month.
-                </p>
+                  <p className="text-black/55 text-[11px] sm:text-xs font-medium flex items-center">
+                    <span className="w-2 h-2 rounded-full bg-[#3CB371] inline-block mr-2 animate-ping shrink-0" />
+                    12,000+ creators paid out monthly.
+                  </p>
+                </div>
               </div>
 
-              {/* Seamless Infinite Brand Marquee Track */}
-              <div className="mt-2.5 lg:mt-6 w-full max-w-md overflow-hidden pb-1 lg:pb-4">
-                <span className="text-black/40 text-[10.5px] uppercase tracking-widest font-bold block mb-1.5 lg:mb-3.5 font-sans">
+              <div className="hidden lg:block w-full max-w-md overflow-hidden pb-1 mt-auto shrink-0">
+                <span className="text-black/40 text-[10.5px] uppercase tracking-widest font-bold block mb-3 font-sans">
                   Partner brands you can promote
                 </span>
-                
                 <div className="relative w-full flex items-center overflow-hidden">
-                  {/* Left & Right gradient bounds to blur edge entries */}
                   <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-white to-transparent z-10 pointer-events-none" />
                   <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent z-10 pointer-events-none" />
-
                   <div className="marquee-track flex items-center">
-                    {/* Render standard brand items list twice */}
                     {[...HERO_BRANDS, ...HERO_BRANDS].map((brand, i) => (
                       <span
                         key={i}
-                        className="mx-7 shrink-0 text-black/60 whitespace-nowrap select-none transition-colors duration-150 hover:text-[#3CB371]"
+                        className="mx-7 shrink-0 text-black/60 whitespace-nowrap select-none transition-colors duration-150 hover:text-[#3CB371] text-sm"
                         style={brand.style}
                       >
                         {brand.name}
@@ -751,29 +707,28 @@ export default function App() {
               </div>
             </div>
 
-            {/* Right Col - Interactive Fintech panel visible on desktop */}
-            <div className="hidden lg:col-span-5 h-full relative lg:flex flex-col justify-center py-6 pr-4 overflow-hidden z-10">
-              <div className="w-full max-h-[100%] overflow-hidden flex flex-col justify-center">
+            {/* Dashboard side — fills remaining hero height; scroll on focus */}
+            <div className="lg:col-span-5 flex flex-col min-h-0 flex-1 lg:h-full pb-1">
+              <HeroDashboardScrollPanel>
                 <DashboardMockup />
-              </div>
+              </HeroDashboardScrollPanel>
             </div>
-
           </div>
         </div>
       </div>
 
       {/* 3. How It Works Section */}
-      <section id="how-it-works-section" className="bg-[#FAFAF7] px-6 pt-10 pb-20 md:py-24 border-t border-gray-100 text-left">
+      <section id="how-it-works-section" className="bg-[#FAFAF7] px-3 sm:px-6 pt-10 pb-16 sm:pb-20 md:py-24 border-t border-gray-100 text-left">
         <div className="max-w-[88rem] mx-auto">
           
           {/* Row 1 Grid split */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-12 mb-16 items-start">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-12 mb-12 sm:mb-16 items-start">
             
             <div className="flex flex-col items-start">
               <span className="text-[#3CB371] text-xs font-bold uppercase tracking-widest mb-3 block font-mono">
-                How Affiliate Associate Program works
+                How the program works
               </span>
-              <h2 className="text-black text-4xl md:text-5xl font-semibold leading-[1.12] mb-8 font-sans" style={{ letterSpacing: '-0.03em' }}>
+              <h2 className="text-black text-3xl xs:text-4xl sm:text-5xl font-semibold leading-[1.12] mb-6 sm:mb-8 font-sans" style={{ letterSpacing: '-0.03em' }}>
                 From signup<br />
                 to first payout.
               </h2>
@@ -783,7 +738,7 @@ export default function App() {
                   document.getElementById('pricing-preview-section')?.scrollIntoView({ behavior: 'smooth' });
                 }}
                 type="button"
-                className="inline-flex items-center gap-3 bg-black text-white text-base font-semibold pl-6 pr-2 py-2 rounded-full hover:bg-gray-800 transition-all group"
+                className="inline-flex items-center gap-3 bg-black text-white text-sm sm:text-base font-semibold pl-5 sm:pl-6 pr-2 py-2.5 sm:py-3 rounded-full hover:bg-gray-800 transition-all group min-h-[44px] sm:min-h-auto"
               >
                 <span>See pricing</span>
                 <span className="bg-[#3CB371] text-white rounded-full p-2 group-hover:rotate-45 transition-transform">
@@ -793,57 +748,57 @@ export default function App() {
             </div>
 
             <div>
-              <p className="text-black/70 text-xl md:text-3.5xl font-normal leading-relaxed md:pt-4">
-                Subscribe to a plan, browse the affiliate marketplace, grab your trackable link, and share it anywhere. We handle the tracking, attribution, and payouts.
+              <p className="text-black/70 text-base sm:text-xl md:text-3xl font-normal leading-relaxed md:pt-4">
+                Subscribe, browse offers, grab your link, and share. We handle tracking, attribution, and payouts.
               </p>
             </div>
           </div>
 
           {/* Row 2 - 3-col step card grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
             
             {/* Card 1 */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-7 lg:p-6 min-h-[17rem] flex flex-col justify-start hover:shadow-lg hover:border-gray-300 transition-all duration-300">
-              <div className="flex flex-col items-start gap-3.5">
+            <div className="bg-white border border-gray-200 rounded-xl sm:rounded-2xl p-5 sm:p-6 lg:p-6 min-h-[15rem] sm:min-h-[17rem] flex flex-col justify-start hover:shadow-lg hover:border-gray-300 transition-all duration-300">
+              <div className="flex flex-col items-start gap-3 sm:gap-3.5">
                 <span className="inline-flex w-10 h-10 rounded-full bg-[#3CB371]/10 text-[#3CB371] text-sm font-extrabold items-center justify-center font-mono">
                   01
                 </span>
-                <h3 className="text-black text-2xl font-semibold leading-snug tracking-tight" style={{ letterSpacing: '-0.02em' }}>
-                  Create an account
+                <h3 className="text-black text-xl sm:text-2xl font-semibold leading-snug tracking-tight" style={{ letterSpacing: '-0.02em' }}>
+                  Create account
                 </h3>
               </div>
-              <p className="text-black/70 text-sm md:text-base leading-relaxed mt-3">
-                Sign up for Affiliate Associate Program in under two minutes to gain instant access to our real-time tracking suite and exclusive affiliate network.
+              <p className="text-black/70 text-xs sm:text-sm md:text-base leading-relaxed mt-3">
+                Sign up in under two minutes to gain instant access to our tracking suite and exclusive network.
               </p>
             </div>
 
             {/* Card 2 */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-7 lg:p-6 min-h-[17rem] flex flex-col justify-start hover:shadow-lg hover:border-gray-300 transition-all duration-300">
-              <div className="flex flex-col items-start gap-3.5">
+            <div className="bg-white border border-gray-200 rounded-xl sm:rounded-2xl p-5 sm:p-6 lg:p-6 min-h-[15rem] sm:min-h-[17rem] flex flex-col justify-start hover:shadow-lg hover:border-gray-300 transition-all duration-300">
+              <div className="flex flex-col items-start gap-3 sm:gap-3.5">
                 <span className="inline-flex w-10 h-10 rounded-full bg-[#3CB371]/10 text-[#3CB371] text-sm font-extrabold items-center justify-center font-mono">
                   02
                 </span>
-                <h3 className="text-black text-2xl font-semibold leading-snug tracking-tight" style={{ letterSpacing: '-0.02em' }}>
-                  Choose a plan
+                <h3 className="text-black text-xl sm:text-2xl font-semibold leading-snug tracking-tight" style={{ letterSpacing: '-0.02em' }}>
+                  Choose plan
                 </h3>
               </div>
-              <p className="text-black/70 text-sm md:text-base leading-relaxed mt-3">
-                Select from our flexible pricing tiers—Starter, Growth, Pro, or Executive—designed to fit your scale and speed of operations.
+              <p className="text-black/70 text-xs sm:text-sm md:text-base leading-relaxed mt-3">
+                Select from flexible pricing tiers designed to fit your scale and speed of operations.
               </p>
             </div>
 
             {/* Card 3 */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-7 lg:p-6 min-h-[17rem] flex flex-col justify-start hover:shadow-lg hover:border-gray-300 transition-all duration-300">
-              <div className="flex flex-col items-start gap-3.5">
+            <div className="bg-white border border-gray-200 rounded-xl sm:rounded-2xl p-5 sm:p-6 lg:p-6 min-h-[15rem] sm:min-h-[17rem] flex flex-col justify-start hover:shadow-lg hover:border-gray-300 transition-all duration-300">
+              <div className="flex flex-col items-start gap-3 sm:gap-3.5">
                 <span className="inline-flex w-10 h-10 rounded-full bg-[#3CB371]/10 text-[#3CB371] text-sm font-extrabold items-center justify-center font-mono">
                   03
                 </span>
-                <h3 className="text-black text-2xl font-semibold leading-snug tracking-tight" style={{ letterSpacing: '-0.02em' }}>
-                  Start earning returns
+                <h3 className="text-black text-xl sm:text-2xl font-semibold leading-snug tracking-tight" style={{ letterSpacing: '-0.02em' }}>
+                  Start earning
                 </h3>
               </div>
-              <p className="text-black/70 text-sm md:text-base leading-relaxed mt-3">
-                Promote top high-converting offers with dynamic links and watch your commissions settle automatically every single week.
+              <p className="text-black/70 text-xs sm:text-sm md:text-base leading-relaxed mt-3">
+                Promote offers with dynamic links and watch commissions settle automatically every week.
               </p>
             </div>
 
@@ -852,26 +807,26 @@ export default function App() {
       </section>
 
       {/* 4. Trusted By Section (marquee row) */}
-      <section id="trusted-by-section" className="bg-[#FAFAF7] px-6 text-left">
-        <div className="max-w-[88rem] mx-auto grid grid-cols-1 md:grid-cols-4 gap-8 items-center py-16 border-t border-b border-gray-200">
+      <section id="trusted-by-section" className="bg-[#FAFAF7] px-3 sm:px-6 text-left">
+        <div className="max-w-[88rem] mx-auto grid grid-cols-1 md:grid-cols-4 gap-6 sm:gap-8 items-center py-12 sm:py-16 border-t border-b border-gray-200">
           
           <div className="md:col-span-1">
-            <p className="text-black/75 text-sm md:text-base leading-relaxed font-semibold">
+            <p className="text-black/75 text-xs sm:text-sm md:text-base leading-relaxed font-semibold">
               Trusted by creators, agencies, and review sites worldwide.
             </p>
           </div>
 
           <div className="md:col-span-3 overflow-hidden relative">
             {/* Blurry horizontal entry blockers */}
-            <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-[#FAFAF7] to-transparent z-10 pointer-events-none" />
-            <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-[#FAFAF7] to-transparent z-10 pointer-events-none" />
+            <div className="absolute left-0 top-0 bottom-0 w-8 sm:w-12 bg-gradient-to-r from-[#FAFAF7] to-transparent z-10 pointer-events-none" />
+            <div className="absolute right-0 top-0 bottom-0 w-8 sm:w-12 bg-gradient-to-l from-[#FAFAF7] to-transparent z-10 pointer-events-none" />
 
             <div className="creators-track flex items-center">
               {/* Loop the creator brand components twice */}
               {[...CREATOR_BRANDS, ...CREATOR_BRANDS].map((brand, idx) => (
                 <span
                   key={idx}
-                  className="mx-10 shrink-0 text-black/50 select-none whitespace-nowrap hover:text-black transition-colors"
+                  className="mx-6 sm:mx-10 shrink-0 text-black/50 select-none whitespace-nowrap hover:text-black transition-colors text-xs sm:text-sm"
                   style={brand.style}
                 >
                   {brand.name}
@@ -884,150 +839,150 @@ export default function App() {
       </section>
 
       {/* 4.5. User Reviews Section */}
-      <section id="user-reviews-section" className="bg-white px-6 py-24 text-left border-t border-b border-gray-100">
+      <section id="user-reviews-section" className="bg-white px-3 sm:px-6 py-16 sm:py-24 text-left border-t border-b border-gray-100">
         <div className="max-w-[88rem] mx-auto">
           
           {/* Section Header */}
-          <div className="text-center max-w-4xl mx-auto mb-16 animate-[fadeIn_0.5s_ease-out]">
+          <div className="text-center max-w-4xl mx-auto mb-12 sm:mb-16 animate-[fadeIn_0.5s_ease-out]">
             <span className="text-[#3CB371] text-xs font-bold uppercase tracking-widest mb-3 block font-mono">
               Reviews
             </span>
-            <h2 className="text-black text-4xl md:text-5xl lg:text-6xl font-semibold leading-tight mb-5 font-sans tracking-tight" style={{ letterSpacing: '-0.04em' }}>
-              Review's from our users
+            <h2 className="text-black text-3xl xs:text-4xl sm:text-5xl md:text-6xl font-semibold leading-tight mb-4 sm:mb-5 font-sans tracking-tight" style={{ letterSpacing: '-0.04em' }}>
+              From our users
             </h2>
-            <p className="text-[#111111]/60 text-base md:text-lg leading-relaxed max-w-2xl mx-auto font-sans">
-              Testimonials from our users around the globe who love our easy withdrawal mechanisms, reliable track recording, and sheer ease of use.
+            <p className="text-[#111111]/60 text-sm sm:text-base md:text-lg leading-relaxed max-w-2xl mx-auto font-sans">
+              Testimonials from our users worldwide who love our easy withdrawals, reliable tracking, and ease of use.
             </p>
           </div>
 
           {/* Testimonial Cards columns matching the attached layout style */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-16 items-start">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-12 sm:mb-16 items-start">
             
             {/* Column 1 */}
-            <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-4 sm:gap-6">
               
-              <div className="bg-[#FAFAF7] border border-gray-150 rounded-2xl p-6 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
-                <div className="flex items-center gap-3.5 mb-4">
+              <div className="bg-[#FAFAF7] border border-gray-150 rounded-xl sm:rounded-2xl p-4 sm:p-6 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
+                <div className="flex items-center gap-3 sm:gap-3.5 mb-4">
                   <img
                     src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&h=100&q=80"
                     alt="Liam Harris"
-                    className="w-11 h-11 rounded-full object-cover border border-gray-200"
+                    className="w-10 sm:w-11 h-10 sm:h-11 rounded-full object-cover border border-gray-200 flex-shrink-0"
                     referrerPolicy="no-referrer"
                   />
-                  <div>
-                    <h4 className="text-black text-sm font-bold font-sans">Liam Harris</h4>
-                    <p className="text-gray-400 text-xs font-mono">Affiliate Creator @liam_h</p>
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-black text-xs sm:text-sm font-bold font-sans truncate">Liam Harris</h4>
+                    <p className="text-gray-400 text-xs font-mono truncate">Affiliate Creator @liam_h</p>
                   </div>
                 </div>
-                <p className="text-black/80 text-xs leading-relaxed font-sans">
-                  "Most other link trackers I have tested always miss conversion pixel events, which loses my money. State-of-the-art tracking has been incredibly reliable—I've seen absolute parity on my click registers and zero lost events. Also, seeing payouts hit my feed perfectly on Monday mornings makes planning so easy."
+                <p className="text-black/80 text-xs leading-relaxed font-sans line-clamp-5">
+                  "Most other trackers miss conversion events, which costs me money. State-of-the-art tracking has been incredibly reliable. Payouts hit perfectly on Mondays, making planning easy."
                 </p>
-                <span className="text-[10px] font-mono text-gray-400 mt-4 block">11:04 AM · Apr 12, 2026</span>
+                <span className="text-[9px] sm:text-[10px] font-mono text-gray-400 mt-4 block">11:04 AM · Apr 12, 2026</span>
               </div>
 
-              <div className="bg-[#FAFAF7] border border-gray-150 rounded-2xl p-6 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
-                <div className="flex items-center gap-3.5 mb-4">
+              <div className="bg-[#FAFAF7] border border-gray-150 rounded-xl sm:rounded-2xl p-4 sm:p-6 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
+                <div className="flex items-center gap-3 sm:gap-3.5 mb-4">
                   <img
                     src="https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=100&h=100&q=80"
                     alt="Chloe Stanford"
-                    className="w-11 h-11 rounded-full object-cover border border-gray-200"
+                    className="w-10 sm:w-11 h-10 sm:h-11 rounded-full object-cover border border-gray-200 flex-shrink-0"
                     referrerPolicy="no-referrer"
                   />
-                  <div>
-                    <h4 className="text-black text-sm font-bold font-sans">Chloe Stanford</h4>
-                    <p className="text-gray-400 text-xs font-mono font-sans">SEO Expert @chloe_stan</p>
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-black text-xs sm:text-sm font-bold font-sans truncate">Chloe Stanford</h4>
+                    <p className="text-gray-400 text-xs font-mono truncate font-sans">SEO Expert @chloe_stan</p>
                   </div>
                 </div>
-                <p className="text-black/80 text-xs leading-relaxed font-sans">
-                  "The pure ease of use on this panel is phenomenal. Getting my cloaked sub-IDs and redirect tracking links configured takes about 30 seconds total. Simple, intuitive dashboard and fast withdrawals without unnecessary delay hurdles."
+                <p className="text-black/80 text-xs leading-relaxed font-sans line-clamp-5">
+                  "The ease of use is phenomenal. Getting my cloaked sub-IDs and tracking links takes 30 seconds. Simple, intuitive, and fast withdrawals."
                 </p>
-                <span className="text-[10px] font-mono text-gray-400 mt-4 block">3:15 PM · May 18, 2026</span>
+                <span className="text-[9px] sm:text-[10px] font-mono text-gray-400 mt-4 block">3:15 PM · May 18, 2026</span>
               </div>
 
             </div>
 
             {/* Column 2 */}
-            <div className="flex flex-col gap-6 font-sans">
+            <div className="flex flex-col gap-4 sm:gap-6 font-sans">
 
-              <div className="bg-[#FAFAF7] border border-gray-150 rounded-2xl p-6 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
-                <div className="flex items-center gap-3.5 mb-4">
+              <div className="bg-[#FAFAF7] border border-gray-150 rounded-xl sm:rounded-2xl p-4 sm:p-6 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
+                <div className="flex items-center gap-3 sm:gap-3.5 mb-4">
                   <img
                     src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=100&h=100&q=80"
                     alt="Marcus Thorne"
-                    className="w-11 h-11 rounded-full object-cover border border-gray-200"
+                    className="w-10 sm:w-11 h-10 sm:h-11 rounded-full object-cover border border-gray-200 flex-shrink-0"
                     referrerPolicy="no-referrer"
                   />
-                  <div>
-                    <h4 className="text-black text-sm font-bold font-sans">Marcus Thorne</h4>
-                    <p className="text-gray-400 text-xs font-mono">Niche Site Mod @marcus_t</p>
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-black text-xs sm:text-sm font-bold font-sans truncate">Marcus Thorne</h4>
+                    <p className="text-gray-400 text-xs font-mono truncate">Niche Site Mod @marcus_t</p>
                   </div>
                 </div>
-                <p className="text-black/80 text-xs leading-relaxed font-sans">
-                  "If you run high volume organic or paid operations, redirect responsiveness is crucial. The Affiliate Associate Program is extremely fast, which boosts my conversion ratios. Fast automated withdrawal options are great, and tracking transparency is stellar."
+                <p className="text-black/80 text-xs leading-relaxed font-sans line-clamp-5">
+                  "Redirect responsiveness is crucial for high-volume operations. Affiliate Associate Program is extremely fast, boosting my conversion ratios. Fast automated withdrawals and stellar tracking."
                 </p>
-                <span className="text-[10px] font-mono text-gray-400 mt-4 block">9:22 AM · Mar 02, 2026</span>
+                <span className="text-[9px] sm:text-[10px] font-mono text-gray-400 mt-4 block">9:22 AM · Mar 02, 2026</span>
               </div>
 
-              <div className="bg-[#FAFAF7] border border-gray-150 rounded-2xl p-6 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
-                <div className="flex items-center gap-3.5 mb-4">
+              <div className="bg-[#FAFAF7] border border-gray-150 rounded-xl sm:rounded-2xl p-4 sm:p-6 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
+                <div className="flex items-center gap-3 sm:gap-3.5 mb-4">
                   <img
                     src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=100&h=100&q=80"
                     alt="Sophia Albright"
-                    className="w-11 h-11 rounded-full object-cover border border-gray-200"
+                    className="w-10 sm:w-11 h-10 sm:h-11 rounded-full object-cover border border-gray-200 flex-shrink-0"
                     referrerPolicy="no-referrer"
                   />
-                  <div>
-                    <h4 className="text-black text-sm font-bold font-sans">Sophia Albright</h4>
-                    <p className="text-gray-400 text-xs font-mono">Social Influencer @sophia_al</p>
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-black text-xs sm:text-sm font-bold font-sans truncate">Sophia Albright</h4>
+                    <p className="text-gray-400 text-xs font-mono truncate">Social Influencer @sophia_al</p>
                   </div>
                 </div>
-                <p className="text-black/80 text-xs leading-relaxed font-sans">
-                  "I love a platform that values my cash flow schedule. Weekly capital gets paid directly every single Monday on time without manual chasing. Solidly built software with absolute click reliability."
+                <p className="text-black/80 text-xs leading-relaxed font-sans line-clamp-5">
+                  "I love platforms that value my cash flow schedule. Weekly capital paid directly every Monday on time. Solidly built software with absolute click reliability."
                 </p>
-                <span className="text-[10px] font-mono text-gray-400 mt-4 block">4:40 AM · May 20, 2026</span>
+                <span className="text-[9px] sm:text-[10px] font-mono text-gray-400 mt-4 block">4:40 AM · May 20, 2026</span>
               </div>
 
             </div>
 
             {/* Column 3 */}
-            <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-4 sm:gap-6">
 
-              <div className="bg-[#FAFAF7] border border-gray-150 rounded-2xl p-6 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
-                <div className="flex items-center gap-3.5 mb-4">
+              <div className="bg-[#FAFAF7] border border-gray-150 rounded-xl sm:rounded-2xl p-4 sm:p-6 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
+                <div className="flex items-center gap-3 sm:gap-3.5 mb-4">
                   <img
                     src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=100&h=100&q=80"
                     alt="Emma Vance"
-                    className="w-11 h-11 rounded-full object-cover border border-gray-200"
+                    className="w-10 sm:w-11 h-10 sm:h-11 rounded-full object-cover border border-gray-200 flex-shrink-0"
                     referrerPolicy="no-referrer"
                   />
-                  <div>
-                    <h4 className="text-black text-sm font-bold font-sans">Emma Vance</h4>
-                    <p className="text-gray-400 text-xs font-mono">Newsletter Writer @emma_vance</p>
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-black text-xs sm:text-sm font-bold font-sans truncate">Emma Vance</h4>
+                    <p className="text-gray-400 text-xs font-mono truncate">Newsletter Writer @emma_vance</p>
                   </div>
                 </div>
-                <p className="text-black/80 text-xs leading-relaxed font-sans">
-                  "Absolute ease of use. I just paste link destinations, click generate, and look at the real-time device logs. Fast settlements are highly predictable, and that gives me total confidence to scale my newsletters."
+                <p className="text-black/80 text-xs leading-relaxed font-sans line-clamp-5">
+                  "Absolute ease of use. I paste link destinations, click generate, and view real-time logs. Fast settlements are predictable and give me confidence to scale."
                 </p>
-                <span className="text-[10px] font-mono text-gray-400 mt-4 block">1:04 PM · Apr 29, 2026</span>
+                <span className="text-[9px] sm:text-[10px] font-mono text-gray-400 mt-4 block">1:04 PM · Apr 29, 2026</span>
               </div>
 
-              <div className="bg-[#FAFAF7] border border-gray-150 rounded-2xl p-6 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
-                <div className="flex items-center gap-3.5 mb-4">
+              <div className="bg-[#FAFAF7] border border-gray-150 rounded-xl sm:rounded-2xl p-4 sm:p-6 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
+                <div className="flex items-center gap-3 sm:gap-3.5 mb-4">
                   <img
                     src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=100&h=100&q=80"
                     alt="David Beck"
-                    className="w-11 h-11 rounded-full object-cover border border-gray-200"
+                    className="w-10 sm:w-11 h-10 sm:h-11 rounded-full object-cover border border-gray-200 flex-shrink-0"
                     referrerPolicy="no-referrer"
                   />
-                  <div>
-                    <h4 className="text-black text-sm font-bold font-sans">David Beck</h4>
-                    <p className="text-gray-400 text-xs font-mono">Creative Strategist @david_beck</p>
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-black text-xs sm:text-sm font-bold font-sans truncate">David Beck</h4>
+                    <p className="text-gray-400 text-xs font-mono truncate">Creative Strategist @david_beck</p>
                   </div>
                 </div>
-                <p className="text-black/80 text-xs leading-relaxed font-sans">
-                  "Most click frameworks require advanced developer settings to prevent false positives. The platform handles redirects perfectly without any lag. Super simple payout flow on Mondays; completely trouble-free platform."
+                <p className="text-black/80 text-xs leading-relaxed font-sans line-clamp-5">
+                  "Click frameworks that prevent false positives usually require advanced developer settings. This platform handles redirects perfectly without lag."
                 </p>
-                <span className="text-[10px] font-mono text-gray-400 mt-4 block">8:12 AM · May 05, 2026</span>
+                <span className="text-[9px] sm:text-[10px] font-mono text-gray-400 mt-4 block">8:12 AM · May 05, 2026</span>
               </div>
 
             </div>
@@ -1035,32 +990,32 @@ export default function App() {
           </div>
 
           {/* Solid Light-Mint Pill Capsule for Stats matching the layout image */}
-          <div className="bg-[#E6F7F0]/65 border border-[#3CB371]/15 rounded-3xl p-8 md:p-10 max-w-5xl mx-auto text-center mt-12 shadow-sm">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:divide-x divide-[#3CB371]/15">
+          <div className="bg-[#E6F7F0]/65 border border-[#3CB371]/15 rounded-2xl sm:rounded-3xl p-6 sm:p-8 md:p-10 max-w-5xl mx-auto text-center mt-10 sm:mt-12 shadow-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8 md:divide-x divide-[#3CB371]/15">
               
               <div className="flex flex-col items-center justify-center">
-                <span className="text-black text-3xl md:text-4xl lg:text-5xl font-extrabold font-sans tracking-tight mb-1.5" style={{ letterSpacing: '-0.03em' }}>
+                <span className="text-black text-2xl xs:text-3xl sm:text-4xl md:text-5xl font-extrabold font-sans tracking-tight mb-1.5" style={{ letterSpacing: '-0.03em' }}>
                   10k+
                 </span>
-                <span className="text-gray-500 text-[11px] md:text-xs font-semibold uppercase tracking-wider font-sans">
-                  Users in a month
+                <span className="text-gray-500 text-[10px] xs:text-xs font-semibold uppercase tracking-wider font-sans">
+                  Users per month
                 </span>
               </div>
 
-              <div className="flex flex-col items-center justify-center pt-5 md:pt-0">
-                <span className="text-[#3CB371] text-3xl md:text-4xl lg:text-5xl font-extrabold font-sans tracking-tight mb-1.5" style={{ letterSpacing: '-0.03em' }}>
+              <div className="flex flex-col items-center justify-center">
+                <span className="text-[#3CB371] text-2xl xs:text-3xl sm:text-4xl md:text-5xl font-extrabold font-sans tracking-tight mb-1.5" style={{ letterSpacing: '-0.03em' }}>
                   97%
                 </span>
-                <span className="text-gray-500 text-[11px] md:text-xs font-semibold uppercase tracking-wider font-sans">
+                <span className="text-gray-500 text-[10px] xs:text-xs font-semibold uppercase tracking-wider font-sans">
                   Success rate
                 </span>
               </div>
 
-              <div className="flex flex-col items-center justify-center pt-5 md:pt-0">
-                <span className="text-black text-3xl md:text-4xl lg:text-5xl font-extrabold font-sans tracking-tight mb-1.5" style={{ letterSpacing: '-0.03em' }}>
+              <div className="flex flex-col items-center justify-center">
+                <span className="text-black text-2xl xs:text-3xl sm:text-4xl md:text-5xl font-extrabold font-sans tracking-tight mb-1.5" style={{ letterSpacing: '-0.03em' }}>
                   22M+
                 </span>
-                <span className="text-gray-500 text-[11px] md:text-xs font-semibold uppercase tracking-wider font-sans">
+                <span className="text-gray-500 text-[10px] xs:text-xs font-semibold uppercase tracking-wider font-sans">
                   Paid out globally
                 </span>
               </div>
@@ -1072,24 +1027,24 @@ export default function App() {
       </section>
 
       {/* 5. Pricing & Detailed In-Page Comparison Section */}
-      <section id="pricing-preview-section" className="bg-[#FAFAF7] px-6 py-24 text-left border-t border-gray-100">
+      <section id="pricing-preview-section" className="bg-[#FAFAF7] px-3 sm:px-6 py-16 sm:py-24 text-left border-t border-gray-100">
         <div className="max-w-[88rem] mx-auto">
           
           {/* Centered Headers */}
-          <div className="text-center max-w-4xl mx-auto mb-16 animate-[fadeIn_0.5s_ease-out]">
+          <div className="text-center max-w-4xl mx-auto mb-12 sm:mb-16 animate-[fadeIn_0.5s_ease-out]">
             <span className="text-[#3CB371] text-xs font-bold uppercase tracking-widest mb-3 block font-mono">
               Simple customizable tiers
             </span>
-            <h2 className="text-black text-4xl md:text-5xl lg:text-6xl font-semibold leading-tight mb-5 font-sans tracking-tight" style={{ letterSpacing: '-0.04em' }}>
+            <h2 className="text-black text-3xl xs:text-4xl sm:text-5xl md:text-6xl font-semibold leading-tight mb-4 sm:mb-5 font-sans tracking-tight" style={{ letterSpacing: '-0.04em' }}>
               Affordable plans for every budget
             </h2>
-            <p className="text-[#111111]/60 text-base md:text-lg leading-relaxed max-w-2xl mx-auto font-sans">
-              Explore our range of pricing options designed to fit any budget, offering exceptional value and flexibility to meet your unique needs.
+            <p className="text-[#111111]/60 text-xs sm:text-base md:text-lg leading-relaxed max-w-2xl mx-auto font-sans">
+              Explore our range of pricing options designed to fit any budget, offering exceptional value and flexibility.
             </p>
           </div>
 
           {/* 5 Plans Grid container - compact layout on desktop */}
-          <div className="max-w-[76rem] mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3.5 xl:gap-4.5 items-stretch mb-20">
+          <div className="max-w-[76rem] mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-3.5 xl:gap-4.5 items-stretch mb-16 sm:mb-20">
             
             {/* Plan 1 - Starter $30 */}
             <div className="bg-white border border-gray-150 rounded-2xl p-5 lg:p-4 xl:p-5 flex flex-col justify-between hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
@@ -1646,7 +1601,8 @@ export default function App() {
       <Modal
         isOpen={activeModal === 'signup'}
         onClose={() => setActiveModal('none')}
-        title="Join Affiliate Associate Program Network"
+        title="Create your account"
+        variant="auth"
       >
         <AuthModal
           initialTab="signup"
@@ -1659,7 +1615,8 @@ export default function App() {
       <Modal
         isOpen={activeModal === 'signin'}
         onClose={() => setActiveModal('none')}
-        title="Sign In to Member Portal"
+        title="Welcome back"
+        variant="auth"
       >
         <AuthModal
           initialTab="signin"

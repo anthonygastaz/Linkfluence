@@ -1,7 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import LogoIcon from './LogoIcon';
-import { syncFromGlobalStorage } from '../lib/sync';
-import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { isSupabaseConfigured } from '../lib/supabaseClient';
+import {
+  verifyAdminLogin,
+  storeAdminCredentials,
+  getAdminCredentials,
+  clearAdminCredentials,
+  adminListProfiles,
+  adminUpsertProfile,
+  adminDeleteProfile,
+  adminDeleteAllProfiles,
+  fetchKycSignedUrl,
+  adminListInvestmentPlans,
+  adminUpsertInvestmentPlan,
+  adminDeleteInvestmentPlan,
+  adminListPaymentMethods,
+  adminUpsertPaymentMethod,
+  adminDeletePaymentMethod,
+} from '../lib/adminService';
+import {
+  mapPlanRow,
+  mapPaymentRow,
+  planToDbPayload,
+  paymentMethodToDbPayload,
+  dispatchCatalogUpdated,
+} from '../lib/catalogService';
+import { CountrySelect, DEFAULT_COUNTRY } from '../lib/countries';
 import { 
   Users, 
   TrendingUp, 
@@ -52,6 +76,7 @@ interface KYCData {
   submittedAt?: string;
   uploadedFileName?: string;
   uploadedFileBase64?: string;
+  uploadedFilePath?: string;
 }
 
 interface Transaction {
@@ -86,10 +111,72 @@ interface UserState {
   transactions: Transaction[];
 }
 
+function KycDocumentPreview({
+  filePath,
+  fileName,
+  base64Fallback,
+}: {
+  filePath?: string;
+  fileName?: string;
+  base64Fallback?: string;
+}) {
+  const [previewUrl, setPreviewUrl] = React.useState<string | null>(base64Fallback || null);
+
+  React.useEffect(() => {
+    let active = true;
+    if (filePath) {
+      const creds = getAdminCredentials();
+      if (creds) {
+        fetchKycSignedUrl(creds, filePath).then((url) => {
+          if (active) setPreviewUrl(url || base64Fallback || null);
+        });
+      }
+    } else if (base64Fallback) {
+      setPreviewUrl(base64Fallback);
+    }
+    return () => {
+      active = false;
+    };
+  }, [filePath, base64Fallback]);
+
+  if (!previewUrl) {
+    return (
+      <p className="mt-3 text-[10px] text-gray-400 font-mono">Document stored securely — preview unavailable.</p>
+    );
+  }
+
+  const isPdf = fileName?.toLowerCase().endsWith('.pdf') || previewUrl.includes('.pdf');
+
+  return (
+    <div className="mt-3 text-indigo-750 font-mono text-[10px] flex flex-col gap-1 text-left">
+      <span className="font-bold flex items-center gap-1">
+        📁 Attached ID Document:{' '}
+        <span className="underline select-all text-indigo-900">{fileName || 'id_proof'}</span>
+      </span>
+      <div className="mt-1 border border-indigo-150 rounded-xl overflow-hidden max-w-sm bg-white p-1 shadow-sm">
+        {isPdf ? (
+          <a href={previewUrl} target="_blank" rel="noreferrer" className="text-xs text-[#3CB371] font-bold p-3 block">
+            Open PDF document
+          </a>
+        ) : (
+          <img
+            src={previewUrl}
+            alt="KYC document upload"
+            className="max-h-56 w-auto rounded object-contain cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition duration-150"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerToast, onClose }: AdminPanelProps) {
   // Authentication state
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
-    return sessionStorage.getItem('linkfluence_admin_authenticated') === 'true';
+    return (
+      sessionStorage.getItem('linkfluence_admin_authenticated') === 'true' &&
+      getAdminCredentials() !== null
+    );
   });
   const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
@@ -111,7 +198,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   // Form fields for User Profile
   const [formName, setFormName] = useState('');
   const [formEmail, setFormEmail] = useState('');
-  const [formCountry, setFormCountry] = useState('United States');
+  const [formCountry, setFormCountry] = useState(DEFAULT_COUNTRY);
   const [formPhone, setFormPhone] = useState('');
   const [formBalance, setFormBalance] = useState('0');
   const [formProfit, setFormProfit] = useState('0');
@@ -197,123 +284,120 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   };
 
   // Administration action log
-  const [adminSystemLogs, setAdminSystemLogs] = useState<Array<{id: string, date: string, action: string, priority: 'info' | 'warn' | 'success'}>>([
-    { id: 'LOG-1', date: '2026-05-28 05:42', action: 'System Administrator logged in securely from port 3000 node telemetry.', priority: 'success' },
-    { id: 'LOG-2', date: '2026-05-28 05:43', action: 'Seeded default account registers (Liam Harris, Chloe Stanford, Sarah Jenkins).', priority: 'info' }
-  ]);
+  const [adminSystemLogs, setAdminSystemLogs] = useState<Array<{id: string, date: string, action: string, priority: 'info' | 'warn' | 'success'}>>([]);
 
-  // Real-time secure global user list fetch from server DB or Supabase cloud
+  const mapDbProfileToRecord = (item: any) => {
+    const profile = {
+      id: item.id,
+      name: item.name || item.email.split('@')[0],
+      email: item.email,
+      country: item.country || 'United States',
+      phone: item.phone || '',
+    };
+    const details = {
+      balance: item.balance || 0,
+      totalProfit: item.total_profit || 0,
+      totalWithdrawals: item.total_withdrawals || 0,
+      totalInvestments: item.total_investments || 0,
+      activePlans: item.active_plans
+        ? typeof item.active_plans === 'string'
+          ? JSON.parse(item.active_plans)
+          : item.active_plans
+        : [],
+      kyc: {
+        status: item.kyc_status || 'Unregistered',
+        fullName: item.kyc_full_name || item.name || '',
+        documentType: item.kyc_doc_type || 'National ID Card',
+        documentNumber: item.kyc_doc_num || '',
+        country: item.country || 'United States',
+        submittedAt: item.kyc_submitted_at,
+        uploadedFileName: item.kyc_file_name,
+        uploadedFileBase64: item.kyc_file_base64,
+        uploadedFilePath: item.kyc_file_path,
+      },
+      transactions: item.transactions
+        ? typeof item.transactions === 'string'
+          ? JSON.parse(item.transactions)
+          : item.transactions
+        : [],
+    };
+    return { ...profile, ...details };
+  };
+
+  const recordToDbProfile = (email: string, updatedRecord: any) => {
+    const existing = profilesList.find(
+      (p) => p.email.toLowerCase().trim() === email.toLowerCase().trim()
+    );
+    return {
+      id: existing?.id,
+      email: updatedRecord.email.toLowerCase().trim(),
+      name: updatedRecord.name,
+      country: updatedRecord.country,
+      phone: updatedRecord.phone,
+      balance: parseFloat(updatedRecord.balance) || 0,
+      total_profit: parseFloat(updatedRecord.totalProfit) || 0,
+      total_withdrawals: parseFloat(updatedRecord.totalWithdrawals) || 0,
+      total_investments: parseFloat(updatedRecord.totalInvestments) || 0,
+      kyc_status: updatedRecord.kyc?.status || 'Unregistered',
+      kyc_submitted_file: updatedRecord.kyc?.status !== 'Unregistered',
+      kyc_approved: updatedRecord.kyc?.status === 'Approved',
+      kyc_doc_type: updatedRecord.kyc?.documentType,
+      kyc_doc_num: updatedRecord.kyc?.documentNumber,
+      kyc_file_name: updatedRecord.kyc?.uploadedFileName,
+      kyc_file_base64: updatedRecord.kyc?.uploadedFileBase64,
+      kyc_file_path: updatedRecord.kyc?.uploadedFilePath,
+      kyc_full_name: updatedRecord.kyc?.fullName,
+      kyc_submitted_at: updatedRecord.kyc?.submittedAt,
+      active_plans: updatedRecord.activePlans || [],
+      transactions: updatedRecord.transactions || [],
+    };
+  };
+
   const fetchGlobalUsers = async () => {
-    if (isSupabaseConfigured()) {
-      try {
-        const { data: dbProfiles, error: profileErr } = await supabase
-          .from('profiles')
-          .select('*');
+    if (!isSupabaseConfigured()) {
+      addLog('Supabase is required for user management.', 'warn');
+      return;
+    }
 
-        if (profileErr) throw profileErr;
+    const creds = getAdminCredentials();
+    if (!creds) return;
 
-        if (dbProfiles && Array.isArray(dbProfiles)) {
-          const parsedProfiles = dbProfiles.map((item: any) => {
-            const profile = { 
-              name: item.name || item.email.split('@')[0], 
-              email: item.email, 
-              country: item.country || 'United States', 
-              phone: item.phone || '' 
-            };
-            const details = {
-              balance: item.balance || 0,
-              totalProfit: item.total_profit || 0,
-              totalWithdrawals: item.total_withdrawals || 0,
-              totalInvestments: item.total_investments || 0,
-              activePlans: item.active_plans ? (typeof item.active_plans === 'string' ? JSON.parse(item.active_plans) : item.active_plans) : [],
-              kyc: {
-                status: item.kyc_status || 'Unregistered',
-                fullName: item.kyc_full_name || item.name || '',
-                documentType: item.kyc_doc_type || 'National ID Card',
-                documentNumber: item.kyc_doc_num || '',
-                country: item.country || 'United States',
-                submittedAt: item.kyc_submitted_at,
-                uploadedFileName: item.kyc_file_name,
-                uploadedFileBase64: item.kyc_file_base64
-              },
-              transactions: item.transactions ? (typeof item.transactions === 'string' ? JSON.parse(item.transactions) : item.transactions) : []
-            };
-            return { ...profile, ...details };
-          });
+    try {
+      const dbProfiles = await adminListProfiles(creds);
 
-          setProfilesList(parsedProfiles);
+      if (dbProfiles && Array.isArray(dbProfiles)) {
+        const parsedProfiles = dbProfiles.map(mapDbProfileToRecord);
+        setProfilesList(parsedProfiles);
 
-          const emails = dbProfiles.map((u: any) => u.email);
-          setRoster(emails);
-          if (emails.length > 0 && !selectedUserEmail) {
-            setSelectedUserEmail(emails[0]);
-          }
-          addLog('Successfully loaded registered partner records from Supabase cloud database.', 'success');
+        const emails = dbProfiles.map((u: any) => u.email);
+        setRoster(emails);
+        if (emails.length > 0 && !selectedUserEmail) {
+          setSelectedUserEmail(emails[0]);
         }
-      } catch (err: any) {
-        console.error("Could not retrieve global user listing from Supabase", err);
-        addLog('Supabase user fetch failed, querying local backup registry.', 'warn');
+        addLog('Loaded registered partner records from Supabase.', 'success');
       }
-    } else {
-      try {
-        const res = await fetch('/api/users/list', {
-          headers: {
-            'Authorization': 'Bearer Lamba1###'
-          }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data && Array.isArray(data.users)) {
-            // Store each user's record back to localized state silently in raw storage to avoid overwrite loops
-            data.users.forEach((item: any) => {
-              const profile = { name: item.name, email: item.email, country: item.country, phone: item.phone };
-              const details = {
-                balance: item.balance,
-                totalProfit: item.totalProfit,
-                totalWithdrawals: item.totalWithdrawals,
-                totalInvestments: item.totalInvestments,
-                activePlans: item.activePlans,
-                kyc: item.kyc,
-                transactions: item.transactions
-              };
-              window.localStorage.setItem(`linkfluence_user_profile_${item.email}`, JSON.stringify(profile));
-              window.localStorage.setItem(`linkfluence_user_data_${item.email}`, JSON.stringify(details));
-            });
-            const emails = data.users.map((u: any) => u.email);
-            window.localStorage.setItem('linkfluence_users_roster', JSON.stringify(emails));
-            setRoster(emails);
-            if (emails.length > 0 && !selectedUserEmail) {
-              setSelectedUserEmail(emails[0]);
-            }
-          }
-        }
-      } catch (err) {
-        console.warn("Could not retrieve global user listing", err);
-      }
+    } catch (err: any) {
+      console.error('Could not retrieve global user listing from Supabase', err);
+      addLog(`Supabase user fetch failed: ${err.message || 'unknown error'}`, 'warn');
     }
   };
 
-  // Seed default data structure inside localStorage
   useEffect(() => {
     const runStartup = async () => {
-      await syncFromGlobalStorage();
       await fetchGlobalUsers();
-      initDefaultDatabase();
-      loadRosterAndConfig();
+      await loadCatalogFromSupabase();
     };
     runStartup();
 
     const handleSyncEvent = () => {
       fetchGlobalUsers();
-      loadRosterAndConfig();
+      loadCatalogFromSupabase();
     };
 
     window.addEventListener('linkfluence_data_updated', handleSyncEvent);
-    window.addEventListener('storage', handleSyncEvent);
 
     return () => {
       window.removeEventListener('linkfluence_data_updated', handleSyncEvent);
-      window.removeEventListener('storage', handleSyncEvent);
     };
   }, []);
 
@@ -327,140 +411,81 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     setAdminSystemLogs(prev => [newLog, ...prev]);
   };
 
-  const initDefaultDatabase = () => {
-    // 1. Core Users Roster - clean and free of obsolete mock email addresses
-    const obsoleteMockEmails = ['harris.liam@linkfluence.io', 'chloe.s@linkfluence.com', 's.jenkins@affiliates.net', 'anthonygastaz@gmail.com'];
-    obsoleteMockEmails.forEach(email => {
-      localStorage.removeItem(`linkfluence_user_profile_${email}`);
-      localStorage.removeItem(`linkfluence_user_data_${email}`);
-    });
+  const loadCatalogFromSupabase = async () => {
+    const creds = getAdminCredentials();
+    if (!creds || !isSupabaseConfigured()) return;
 
-    // Seed/Load roster index dynamically or initialize for the first time
-    const isFirstTime = !localStorage.getItem('linkfluence_system_initialized');
-    
-    // Discover any dynamically added user profiles in localStorage and merge them
-    const localProfileEmails: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith('linkfluence_user_profile_')) {
-        const email = key.substring('linkfluence_user_profile_'.length);
-        if (email) {
-          localProfileEmails.push(email);
-        }
-      }
-    }
-
-    const defaultSeed = isFirstTime ? ['graphicbullng@gmail.com'] : [];
-    let emails: string[] = [];
-
-    const savedRoster = localStorage.getItem('linkfluence_users_roster');
-    if (savedRoster) {
-      try {
-        const parsed = JSON.parse(savedRoster);
-        if (Array.isArray(parsed)) {
-          // Merge unique emails, discarding obsolete mock ones but preserving any others
-          const uniqueEmails = new Set([...defaultSeed, ...parsed, ...localProfileEmails]);
-          obsoleteMockEmails.forEach(obs => uniqueEmails.delete(obs));
-          emails = Array.from(uniqueEmails);
-        }
-      } catch (e) {
-        console.error("Error patching existing roster on startup", e);
-      }
-    } else {
-      const uniqueEmails = new Set([...defaultSeed, ...localProfileEmails]);
-      obsoleteMockEmails.forEach(obs => uniqueEmails.delete(obs));
-      emails = Array.from(uniqueEmails);
-    }
-    localStorage.setItem('linkfluence_users_roster', JSON.stringify(emails));
-
-    // 2. Seeding zeroed out clean records for graphicbullng@gmail.com if first time ever
-    if (isFirstTime) {
-      const defaultData: { [key: string]: { profile: any, data: UserState } } = {
-        'graphicbullng@gmail.com': {
-          profile: { name: 'Graphic Bull', email: 'graphicbullng@gmail.com', country: 'United States', phone: '+1 (555) 019-2831' },
-          data: {
-            balance: 0.00,
-            totalProfit: 0.00,
-            totalWithdrawals: 0.00,
-            totalInvestments: 0.00,
-            activePlans: [],
-            kyc: { status: 'Unregistered', fullName: '', documentType: 'National ID Card', documentNumber: '', country: 'United States' },
-            transactions: []
-          }
-        }
-      };
-
-      // Store profiles and datas if not already present
-      Object.keys(defaultData).forEach(email => {
-        if (!localStorage.getItem(`linkfluence_user_profile_${email}`)) {
-          localStorage.setItem(`linkfluence_user_profile_${email}`, JSON.stringify(defaultData[email].profile));
-        }
-        if (!localStorage.getItem(`linkfluence_user_data_${email}`)) {
-          localStorage.setItem(`linkfluence_user_data_${email}`, JSON.stringify(defaultData[email].data));
-        }
-      });
-      localStorage.setItem('linkfluence_system_initialized', 'true');
-    }
-
-    // 3. System Investment Pools configuration
-    const defaultPlans = [
-      { id: 'p1', name: 'Starter Plan', yield: 1.5, days: 30, min: 30, desc: 'Ideal for aspiring creators starting to monetize their link shares. Standard click & geo tracking with weekly Monday payouts.' },
-      { id: 'p2', name: 'Growth Plan', yield: 2.2, days: 60, min: 50, desc: 'Perfect for growing content makers with an active click flow. Includes full device and link analytics.' },
-      { id: 'p3', name: 'Pro Premier Plan', yield: 3.0, days: 90, min: 100, desc: 'Optimized for professional creators seeking maximum daily yield. Includes real-time dashboard API hook and custom UTM Sub-IDs.' },
-      { id: 'p4', name: 'Executive Plan', yield: 4.5, days: 180, min: 200, desc: 'Engineered for high-volume networks, agencies, and large publishers. Comes with on-demand payouts and custom DNS cloaked domains.' }
-    ];
-    if (!localStorage.getItem('linkfluence_investment_plans')) {
-      localStorage.setItem('linkfluence_investment_plans', JSON.stringify(defaultPlans));
-    }
-
-    // 4. Gateway Payment methods configuration
-    const defaultGateways = [
-      { id: 'usdt-trc', name: 'USDT (TRC20)', type: 'crypto', address: 'TLeS3Z9rXv89U6p7YQ18n5DmVyF9oWk2bX', enabled: true, desc: 'TRON low-fee stablecoin network settlement.' },
-      { id: 'usdt-erc', name: 'USDT (ERC20)', type: 'crypto', address: '0x78a9c3b88d01ef0023a8901cb001f3df91a8291f', enabled: true, desc: 'Ethereum standard network stablecoin transaction routing.' },
-      { id: 'btc', name: 'Bitcoin (BTC)', type: 'crypto', address: 'bc1q9p3a5d8f6k7m2x1y8g9n3w4r0t5y8j0u2a', enabled: true, desc: 'Direct Satoshi on-chain allocation address.' },
-      { id: 'credit', name: 'Credit Card', type: 'gateway', address: 'Visa / Mastercard Automated Terminal', enabled: true, desc: 'Instant fiat billing using secure merchant APIs.' },
-      { id: 'paypal', name: 'PayPal Gateway', type: 'gateway', address: 'paypal-sandbox@linkfluence.com', enabled: true, desc: 'Simulated fast authentication payment flow.' },
-      { id: 'bank', name: 'Bank Wire', type: 'bank', address: 'BENEFICIARY: LINKFLUENCE GLOBAL LTD, Bank Ref: LF-PORTAL', enabled: true, desc: 'Settle institutional wires through bank routing.' }
-    ];
-    if (!localStorage.getItem('linkfluence_payment_methods')) {
-      localStorage.setItem('linkfluence_payment_methods', JSON.stringify(defaultGateways));
-    }
-
-    // Notify any active listeners of system data load / updates dynamically
-    emails.forEach(email => {
-      window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email } }));
-    });
-  };
-
-  const loadRosterAndConfig = () => {
-    // Roster load
-    const savedRoster = localStorage.getItem('linkfluence_users_roster');
-    if (savedRoster) {
-      try {
-        const parsed = JSON.parse(savedRoster);
-        setRoster(parsed);
-        if (parsed.length > 0) {
-          setSelectedUserEmail(parsed[0]);
-        } else {
-          setSelectedUserEmail('');
-        }
-      } catch (e){}
-    }
-
-    // Dynamic Plans load
-    const savedPlans = localStorage.getItem('linkfluence_investment_plans');
-    if (savedPlans) {
-      try { setPlans(JSON.parse(savedPlans)); } catch (e) {}
-    }
-
-    // Dynamic Gateways load
-    const savedGateways = localStorage.getItem('linkfluence_payment_methods');
-    if (savedGateways) {
-      try { setPaymentGateways(JSON.parse(savedGateways)); } catch (e) {}
+    try {
+      const [planRows, methodRows] = await Promise.all([
+        adminListInvestmentPlans(creds),
+        adminListPaymentMethods(creds),
+      ]);
+      setPlans((planRows || []).map((row) => mapPlanRow(row as Record<string, unknown>)));
+      setPaymentGateways((methodRows || []).map((row) => mapPaymentRow(row as Record<string, unknown>)));
+    } catch (err: any) {
+      console.error('Failed to load catalog from Supabase', err);
+      addLog(`Catalog fetch failed: ${err.message || 'unknown error'}`, 'warn');
     }
   };
 
-  const handleAdminVerify = (e: React.FormEvent) => {
+  const emptyUserRecord = (email: string) => ({
+    name: email.split('@')[0],
+    email,
+    country: 'United States',
+    phone: '',
+    balance: 0,
+    totalProfit: 0,
+    totalWithdrawals: 0,
+    totalInvestments: 0,
+    activePlans: [],
+    kyc: { status: 'Unregistered' as const, fullName: '', documentType: 'National ID Card', documentNumber: '', country: 'United States' },
+    transactions: [],
+  });
+
+  const getUserRecord = (email: string) => {
+    const found = profilesList.find(p => p.email.toLowerCase().trim() === email.toLowerCase().trim());
+    return found || emptyUserRecord(email);
+  };
+
+  const saveUserRecord = async (email: string, updatedRecord: any) => {
+    const creds = getAdminCredentials();
+    if (!isSupabaseConfigured() || !creds) {
+      triggerToast('Supabase admin session required.');
+      return false;
+    }
+
+    const profile = {
+      name: updatedRecord.name,
+      email: updatedRecord.email,
+      country: updatedRecord.country,
+      phone: updatedRecord.phone,
+    };
+
+    const dbPayload = recordToDbProfile(email, updatedRecord);
+    if (!dbPayload.id) {
+      triggerToast('This partner must complete signup before their profile can be saved.');
+      addLog(`No Supabase profile id for ${email}; user must register first.`, 'warn');
+      return false;
+    }
+
+    try {
+      await adminUpsertProfile(creds, dbPayload);
+      addLog(`Saved profile updates for ${email}`, 'success');
+      await fetchGlobalUsers();
+      window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email: updatedRecord.email } }));
+      if (currentUser && currentUser.email === email) {
+        onUpdateCurrentUser(profile);
+      }
+      return true;
+    } catch (error: any) {
+      console.error('Failed to sync updated record to Supabase profiles', error);
+      addLog(`Supabase save error for ${email}: ${error.message}`, 'warn');
+      triggerToast(error.message || 'Failed to save profile.');
+      return false;
+    }
+  };
+
+  const handleAdminVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(null);
     if (!adminUsername.trim() || !adminPassword.trim()) {
@@ -468,11 +493,14 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       return;
     }
 
-    if (adminUsername.toLowerCase() === 'affiliateassociateprogram' && adminPassword === 'Lamba1###') {
-      sessionStorage.setItem('linkfluence_admin_authenticated', 'true');
+    const ok = await verifyAdminLogin(adminUsername, adminPassword);
+    if (ok) {
+      storeAdminCredentials({ username: adminUsername, password: adminPassword });
       setIsAdminAuthenticated(true);
       triggerToast('Security clearance approved. Administrative token successfully minted.');
       addLog('Administrator authenticated successfully.', 'success');
+      await fetchGlobalUsers();
+      await loadCatalogFromSupabase();
     } else {
       setAuthError('Invalid credentials. Clear text telemetry mismatch detected.');
       addLog('Failed administrator login attempt.', 'warn');
@@ -480,224 +508,19 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   };
 
   const handleLogoutAdmin = () => {
-    sessionStorage.removeItem('linkfluence_admin_authenticated');
+    clearAdminCredentials();
     setIsAdminAuthenticated(false);
     triggerToast('Administrative token invalidated. Logged out.');
     addLog('Administrator signed out.', 'info');
   };
 
-  // Helper: Retrieve full user record compiled with dynamic automatic backup seeding
-  const getUserRecord = (email: string) => {
-    if (isSupabaseConfigured()) {
-      const found = profilesList.find(p => p.email.toLowerCase().trim() === email.toLowerCase().trim());
-      if (found) {
-        return found;
-      }
-      return {
-        name: email.split('@')[0],
-        email: email,
-        country: 'United States',
-        phone: '',
-        balance: 0,
-        totalProfit: 0,
-        totalWithdrawals: 0,
-        totalInvestments: 0,
-        activePlans: [],
-        kyc: { status: 'Unregistered', fullName: '', documentType: 'National ID Card', documentNumber: '', country: 'United States' },
-        transactions: []
-      };
-    }
-
-    let profileSaved = localStorage.getItem(`linkfluence_user_profile_${email}`);
-    let dataSaved = localStorage.getItem(`linkfluence_user_data_${email}`);
-    
-    // Auto-seed missing user profile with a graceful human name derived from their email address
-    if (!profileSaved) {
-      const emailPrefix = email.split('@')[0];
-      const name = emailPrefix
-        .replace('.', ' ')
-        .replace('-', ' ')
-        .replace('_', ' ')
-        .replace(/(^\w|\s\w)/g, m => m.toUpperCase());
-        
-      const seedProfile = {
-        name,
-        email,
-        country: 'United States',
-        phone: '+1 (555) 012-' + Math.floor(1000 + Math.random() * 9000)
-      };
-      profileSaved = JSON.stringify(seedProfile);
-      localStorage.setItem(`linkfluence_user_profile_${email}`, profileSaved);
-    }
-    
-    // Auto-seed missing user data with a realistic balance structure matching a newly registered partner
-    if (!dataSaved) {
-      const seedData: UserState = {
-        balance: 350.00, // Seed a small default start reward
-        totalProfit: 12.50,
-        totalWithdrawals: 0.00,
-        totalInvestments: 300.00,
-        activePlans: [
-          {
-            id: 'p1',
-            name: 'Starter Plan',
-            amount: 300.00,
-            dailyYieldPercent: 1.5,
-            accruedInterest: 12.50,
-            daysActive: 3,
-            totalDays: 30,
-            dateStarted: new Date().toISOString().substring(0, 10)
-          }
-        ],
-        kyc: { 
-          status: 'Approved', 
-          fullName: email.split('@')[0].toUpperCase(), 
-          documentType: 'National ID Card', 
-          documentNumber: 'ID-' + Math.floor(100000 + Math.random() * 900000), 
-          country: 'United States' 
-        },
-        transactions: [
-          {
-            id: 'TXN-' + Math.floor(100000 + Math.random() * 900000),
-            date: new Date().toISOString().replace('T', ' ').substring(0, 16),
-            type: 'deposit',
-            amount: 300.00,
-            status: 'Approved',
-            methodOrPlan: 'USDT (TRC20)',
-            destinationOrDetail: 'TLeS3Z9rXv89...oWk2bX',
-            reference: 'TX-' + Math.floor(100000 + Math.random() * 900000)
-          }
-        ]
-      };
-      dataSaved = JSON.stringify(seedData);
-      localStorage.setItem(`linkfluence_user_data_${email}`, dataSaved);
-    }
-
-    let profile = { name: 'Unknown', email: email, country: 'United States', phone: '' };
-    try { profile = JSON.parse(profileSaved); } catch (e) {}
-
-    let data: UserState = {
-      balance: 0,
-      totalProfit: 0,
-      totalWithdrawals: 0,
-      totalInvestments: 0,
-      activePlans: [],
-      kyc: { status: 'Unregistered', fullName: '', documentType: '', documentNumber: '', country: '' },
-      transactions: []
-    };
-    try { data = JSON.parse(dataSaved); } catch (e) {}
-
-    return { ...profile, ...data };
+  const refreshAdminData = () => {
+    void fetchGlobalUsers();
+    void loadCatalogFromSupabase();
   };
 
-  // Helper: Save full user record compiled back
-  const saveUserRecord = (email: string, updatedRecord: any) => {
-    const profile = {
-      name: updatedRecord.name,
-      email: updatedRecord.email,
-      country: updatedRecord.country,
-      phone: updatedRecord.phone
-    };
-
-    const data: UserState = {
-      balance: parseFloat(updatedRecord.balance) || 0,
-      totalProfit: parseFloat(updatedRecord.totalProfit) || 0,
-      totalWithdrawals: parseFloat(updatedRecord.totalWithdrawals) || 0,
-      totalInvestments: parseFloat(updatedRecord.totalInvestments) || 0,
-      activePlans: updatedRecord.activePlans || [],
-      kyc: updatedRecord.kyc || { status: 'Unregistered', fullName: '', documentType: '', documentNumber: '', country: '' },
-      transactions: updatedRecord.transactions || []
-    };
-
-    localStorage.setItem(`linkfluence_user_profile_${email}`, JSON.stringify(profile));
-    localStorage.setItem(`linkfluence_user_data_${email}`, JSON.stringify(data));
-
-    // Update roster if not in it
-    let savedRoster = localStorage.getItem('linkfluence_users_roster');
-    if (savedRoster) {
-      try {
-        const parsed = JSON.parse(savedRoster);
-        if (!parsed.includes(email)) {
-          parsed.push(email);
-          localStorage.setItem('linkfluence_users_roster', JSON.stringify(parsed));
-          setRoster(parsed);
-        }
-      } catch (e) {}
-    } else {
-      const parsed = [email];
-      localStorage.setItem('linkfluence_users_roster', JSON.stringify(parsed));
-      setRoster(parsed);
-    }
-
-    if (isSupabaseConfigured()) {
-      const dbProfile = {
-        name: profile.name,
-        email: profile.email.toLowerCase().trim(),
-        country: profile.country,
-        phone: profile.phone,
-        balance: data.balance,
-        total_profit: data.totalProfit,
-        total_withdrawals: data.totalWithdrawals,
-        total_investments: data.totalInvestments,
-        kyc_status: data.kyc.status,
-        kyc_submitted_file: data.kyc.status !== 'Unregistered',
-        kyc_approved: data.kyc.status === 'Approved',
-        kyc_doc_type: data.kyc.documentType,
-        kyc_doc_num: data.kyc.documentNumber,
-        kyc_file_name: data.kyc.uploadedFileName,
-        kyc_file_base64: data.kyc.uploadedFileBase64,
-        kyc_full_name: data.kyc.fullName,
-        active_plans: data.activePlans,
-        transactions: data.transactions
-      };
-
-      supabase
-        .from('profiles')
-        .upsert(dbProfile, { onConflict: 'email' })
-        .then(({ error }) => {
-          if (error) {
-            console.error("Failed to sync updated record to Supabase profiles", error);
-            addLog(`Supabase save error for ${email}: ${error.message}`, 'warn');
-          } else {
-            addLog(`Committed admin updates directly to Supabase for ${email}`, 'success');
-            fetchGlobalUsers();
-          }
-        });
-    } else {
-      // Connect directly to centralized update API
-      fetch('/api/users/update', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer Lamba1###'
-        },
-        body: JSON.stringify({
-          email,
-          updatedProfile: profile,
-          updatedData: data
-        })
-      })
-      .then(res => {
-        if (res.ok) {
-          addLog(`Synchronized backend update for state block of: ${email}`, 'success');
-        }
-      })
-      .catch(err => {
-        console.warn('Central update hook failed:', err);
-      });
-    }
-
-    // Seeding/Updating notification event to immediately synchronize user dashboards
-    window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email } }));
-
-    // In case we're editing the currently logged-in user in client, sync their state!
-    if (currentUser && currentUser.email === email) {
-      onUpdateCurrentUser(profile);
-    }
-  };
-
-  // Action 1: Create Account
-  const handleCreateUserSubmit = (e: React.FormEvent) => {
+  // Action 1: Create Account — profiles are created on signup; admin can edit after registration
+  const handleCreateUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formEmail.trim() || !formName.trim()) {
       triggerToast('Full Name and Email blocks are mandatory.');
@@ -705,53 +528,36 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     }
 
     const normalizedEmail = formEmail.trim().toLowerCase();
-    const testUserExist = localStorage.getItem(`linkfluence_user_profile_${normalizedEmail}`);
-    if (testUserExist) {
-      triggerToast('A user account with this email already exists.');
+    const existing = profilesList.find((p) => p.email.toLowerCase() === normalizedEmail);
+    if (!existing) {
+      triggerToast('Partner must complete public signup first. Their profile is created automatically on registration.');
+      setIsCreatingUser(false);
       return;
     }
 
     const newRecord = {
+      ...existing,
       name: formName,
       email: normalizedEmail,
       country: formCountry,
-      phone: formPhone || '+1 (555) 012-3456',
+      phone: formPhone || existing.phone,
       balance: parseFloat(formBalance) || 0,
       totalProfit: parseFloat(formProfit) || 0,
-      totalWithdrawals: 0,
-      totalInvestments: 0,
-      activePlans: [],
       kyc: {
+        ...existing.kyc,
         status: formKycStatus,
         fullName: formName,
-        documentType: 'Passport Verification Bypassed',
-        documentNumber: 'ADMIN-SEEDED',
         country: formCountry,
-        submittedAt: new Date().toISOString().replace('T', ' ').substring(0, 16)
       },
-      transactions: [
-        {
-          id: 'tx-' + Date.now(),
-          type: 'deposit' as const,
-          amount: parseFloat(formBalance) || 0,
-          methodOrPlan: 'Administrative Creation',
-          destinationOrDetail: 'Balance Seeded by Administrator',
-          date: new Date().toISOString().replace('T', ' ').substring(0, 16),
-          status: 'Completed' as const,
-          reference: 'TXN-' + Math.floor(100000 + Math.random() * 900000) + '-ADJ'
-        }
-      ]
     };
 
-    saveUserRecord(normalizedEmail, newRecord);
-    triggerToast(`Succeeded! Account created for ${formName}.`);
-    addLog(`Created new partner account: ${formName} (${formEmail})`, 'success');
-    
-    // Refresh roster
-    loadRosterAndConfig();
+    const saved = await saveUserRecord(normalizedEmail, newRecord);
+    if (saved) {
+      triggerToast(`Profile updated for ${formName}.`);
+      addLog(`Updated partner account: ${formName} (${formEmail})`, 'success');
+    }
+
     setIsCreatingUser(false);
-    
-    // Clear forms
     setFormName('');
     setFormEmail('');
     setFormPhone('');
@@ -773,7 +579,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     setIsEditingUser(true);
   };
 
-  const handleEditUserSubmit = (e: React.FormEvent) => {
+  const handleEditUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formEmail.trim() || !formName.trim()) {
       triggerToast('Name & Email cannot be empty.');
@@ -784,7 +590,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     const updatedRecord = {
       ...originalRecord,
       name: formName,
-      email: formEmail,
+      email: formEmail.trim().toLowerCase(),
       country: formCountry,
       phone: formPhone,
       balance: parseFloat(formBalance) || 0,
@@ -797,67 +603,36 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       }
     };
 
-    // If email is changed, perform migration
-    if (editingUserOriginalEmail !== formEmail.trim()) {
-      localStorage.removeItem(`linkfluence_user_profile_${editingUserOriginalEmail}`);
-      localStorage.removeItem(`linkfluence_user_data_${editingUserOriginalEmail}`);
-      
-      // Update roster
-      let savedRoster = localStorage.getItem('linkfluence_users_roster');
-      if (savedRoster) {
-        try {
-          const parsed = JSON.parse(savedRoster);
-          const i = parsed.indexOf(editingUserOriginalEmail);
-          if (i !== -1) parsed.splice(i, 1);
-          localStorage.setItem('linkfluence_users_roster', JSON.stringify(parsed));
-        } catch (e) {}
-      }
+    const saved = await saveUserRecord(editingUserOriginalEmail, updatedRecord);
+    if (saved) {
+      triggerToast(`Roster updated for ${formName}.`);
+      addLog(`Modified account settings for: ${formName} (${formEmail})`, 'info');
     }
 
-    saveUserRecord(formEmail.trim(), updatedRecord);
-    triggerToast(`Roster updated for ${formName}.`);
-    addLog(`Modified account settings for: ${formName} (${formEmail})`, 'info');
-    
     setIsEditingUser(false);
-    loadRosterAndConfig();
   };
 
   const handleDeleteUser = (email: string) => {
     promptConfirm(
       "Delete Partner Account",
       `Are you sure you want to permanently delete user account: ${email}? This collapses all records and database logs immediately.`,
-      () => {
-        localStorage.removeItem(`linkfluence_user_profile_${email}`);
-        localStorage.removeItem(`linkfluence_user_data_${email}`);
-        
-        let savedRoster = localStorage.getItem('linkfluence_users_roster');
-        if (savedRoster) {
-          try {
-            const parsed = JSON.parse(savedRoster);
-            const i = parsed.indexOf(email);
-            if (i !== -1) parsed.splice(i, 1);
-            localStorage.setItem('linkfluence_users_roster', JSON.stringify(parsed));
-          } catch (e) {}
-        }
-        
-        if (isSupabaseConfigured()) {
-          supabase
-            .from('profiles')
-            .delete()
-            .eq('email', email.toLowerCase().trim())
-            .then(({ error }) => {
-              if (error) {
-                console.error("Failed to delete user profile from Supabase", error);
-              } else {
-                addLog(`Terminated cloud database records on Supabase for ${email}`, 'warn');
-                fetchGlobalUsers();
-              }
-            });
+      async () => {
+        const creds = getAdminCredentials();
+        if (!isSupabaseConfigured() || !creds) {
+          triggerToast('Supabase admin session required.');
+          return;
         }
 
-        triggerToast(`Account ${email} deleted successfully.`);
-        addLog(`Deleted customer account and ledger logs for ${email}`, 'warn');
-        loadRosterAndConfig();
+        try {
+          await adminDeleteProfile(creds, email.toLowerCase().trim());
+          addLog(`Deleted profile on Supabase for ${email}`, 'warn');
+          await fetchGlobalUsers();
+          triggerToast(`Account ${email} deleted successfully.`);
+          addLog(`Deleted customer account and ledger logs for ${email}`, 'warn');
+        } catch (error) {
+          console.error('Failed to delete user profile from Supabase', error);
+          triggerToast('Failed to delete account.');
+        }
       },
       "Delete Account",
       true
@@ -869,49 +644,26 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       "Delete All Accounts",
       "Are you absolutely sure you want to permanently delete all registered user accounts? This will wipe user profiles, balances, transaction logs, and log out any active sessions. Custom investment plans and available payment options will remain completely untouched. This action is irreversible!",
       () => {
-        // Collect all keys to delete safely using Object.keys to prevent loop indexing side-effects
-        const keysToRemove = Object.keys(localStorage).filter(key => 
-          key.startsWith('linkfluence_user_profile_') || 
-          key.startsWith('linkfluence_user_data_')
-        );
-        
-        // Remove all user-specific profiles and details
-        keysToRemove.forEach(key => {
-          localStorage.removeItem(key);
-        });
-        
-        // Clear the roster list
-        localStorage.setItem('linkfluence_users_roster', JSON.stringify([]));
-        
-        // Sign out any active user session
-        localStorage.removeItem('linkfluence_active_user_email');
-        onUpdateCurrentUser(null);
-        
-        // Keep system initialized flag as true so default seed doesn't re-execute on page load
-        localStorage.setItem('linkfluence_system_initialized', 'true');
-        
-        if (isSupabaseConfigured()) {
-          supabase
-            .from('profiles')
-            .delete()
-            .neq('email', '')
-            .then(({ error }) => {
-              if (error) {
-                console.error("Failed to delete all profiles from Supabase", error);
-              } else {
-                addLog('Purged all cloud registrations on Supabase database table.', 'warn');
-                fetchGlobalUsers();
-              }
-            });
+        const creds = getAdminCredentials();
+        if (!isSupabaseConfigured() || !creds) {
+          triggerToast('Supabase admin session required.');
+          return;
         }
 
-        triggerToast("Succeeded! All user accounts have been permanently deleted.");
-        addLog("Deleted all registered partner accounts", "warn");
-        
-        // Dispatch update events to other tabs/windows if any
-        window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email: '*' } }));
-        
-        loadRosterAndConfig();
+        onUpdateCurrentUser(null);
+
+        adminDeleteAllProfiles(creds)
+          .then(async () => {
+            addLog('Purged all cloud registrations on Supabase database table.', 'warn');
+            await fetchGlobalUsers();
+            triggerToast('All user accounts have been permanently deleted.');
+            addLog('Deleted all registered partner accounts', 'warn');
+            window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email: '*' } }));
+          })
+          .catch((error) => {
+            console.error('Failed to delete all profiles from Supabase', error);
+            triggerToast('Failed to delete all accounts.');
+          });
       },
       "Delete All Accounts",
       true
@@ -942,12 +694,12 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     let nextInvestments = raw.totalInvestments || 0;
     const isCredit = adjustmentType === 'credit';
 
-    let tag = 'Main Account Balance';
-    if (adjustmentTarget === 'profit') {
-      tag = 'Accumulated Dividends';
-    } else if (adjustmentTarget === 'deposits') {
-      tag = 'Total deposits';
-    }
+    const targetLabel =
+      adjustmentTarget === 'profit'
+        ? 'yield earnings'
+        : adjustmentTarget === 'deposits'
+        ? 'deposit earnings'
+        : 'wallet balance';
 
     if (adjustmentTarget === 'balance') {
       nextBalance = isCredit ? (raw.balance + amountNum) : (raw.balance - amountNum);
@@ -974,8 +726,10 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       id: 'tx-adj-' + Date.now(),
       type: isCredit ? 'deposit' : 'withdrawal',
       amount: amountNum,
-      methodOrPlan: isCredit ? 'System Adjustment Credit' : 'System Adjustment Debit',
-      destinationOrDetail: adjustmentNote || `Administrative adjustment to ${tag}`,
+      methodOrPlan: isCredit ? 'Earnings' : 'Withdrawal',
+      destinationOrDetail: adjustmentNote || (isCredit
+        ? `Earnings credited to ${targetLabel}`
+        : `Withdrawal from ${targetLabel}`),
       date: new Date().toISOString().replace('T', ' ').substring(0, 16),
       status: 'Completed',
       reference: txRef
@@ -989,9 +743,9 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       transactions: [adjustmentTx, ...raw.transactions]
     };
 
-    saveUserRecord(fundAdjustmentUserEmail, updatedRecord);
+    void saveUserRecord(fundAdjustmentUserEmail, updatedRecord);
     triggerToast(`Financial adjustment executed! Account updated.`);
-    addLog(`Manually ${isCredit ? 'credited' : 'debited'} ${fundAdjustmentUserEmail} $${amountNum} in ${tag}. Note: ${adjustmentNote}`, 'success');
+    addLog(`Manually ${isCredit ? 'credited' : 'debited'} ${fundAdjustmentUserEmail} $${amountNum} to ${targetLabel}. Note: ${adjustmentNote}`, 'success');
     
     setIsAdjustingFunds(false);
   };
@@ -1008,7 +762,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       verificationPassed: true // Sync verified badge
     };
 
-    saveUserRecord(email, updated);
+    void saveUserRecord(email, updated);
     triggerToast(`KYC Verification request approved for ${raw.name}.`);
     addLog(`Accepted and verified client KYC profile for: ${email}`, 'success');
   };
@@ -1024,44 +778,48 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       verificationPassed: false
     };
 
-    saveUserRecord(email, updated);
+    void saveUserRecord(email, updated);
     triggerToast(`KYC application rejected. User notified.`);
     addLog(`Rejected customer verification documents for ${email}`, 'warn');
   };
 
   // Action 5: Dynamic Investment Plans Config
-  const handleSavePlanSubmit = (e: React.FormEvent) => {
+  const handleSavePlanSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!planForm.name.trim()) {
       triggerToast('Pool plan name is mandatory.');
       return;
     }
 
-    let updatedPlans = [...plans];
+    const creds = getAdminCredentials();
+    if (!creds || !isSupabaseConfigured()) {
+      triggerToast('Supabase admin session required to manage plans.');
+      return;
+    }
+
     const planObj = {
-      id: editingPlanId || 'plan-' + Date.now(),
+      id: editingPlanId || '',
       name: planForm.name,
       yield: parseFloat(planForm.yield) || 1.0,
       days: parseInt(planForm.days) || 30,
       min: parseFloat(planForm.min) || 50,
-      desc: planForm.desc || 'Operational allocation pool.'
+      desc: planForm.desc || 'Operational allocation pool.',
+      is_active: true,
     };
 
-    if (isEditingPlan && editingPlanId) {
-      updatedPlans = updatedPlans.map(p => p.id === editingPlanId ? planObj : p);
-    } else {
-      updatedPlans.push(planObj);
+    try {
+      await adminUpsertInvestmentPlan(creds, planToDbPayload(planObj));
+      await loadCatalogFromSupabase();
+      dispatchCatalogUpdated();
+      triggerToast('Investment plan details saved successfully.');
+      addLog(`Configured dynamic allocation pool parameters for schema ${planForm.name}`, 'success');
+      setIsEditingPlan(false);
+      setEditingPlanId(null);
+      setPlanForm({ name: '', yield: '2.5', days: '60', min: '100', desc: '' });
+    } catch (err: any) {
+      triggerToast(err.message || 'Failed to save investment plan.');
+      addLog(`Plan save failed: ${err.message || 'unknown error'}`, 'warn');
     }
-
-    localStorage.setItem('linkfluence_investment_plans', JSON.stringify(updatedPlans));
-    setPlans(updatedPlans);
-    triggerToast(`Investment plan details saved successfully.`);
-    addLog(`Configured dynamic allocation pool parameters for schema ${planForm.name}`, 'success');
-    
-    // Clear plans form
-    setIsEditingPlan(false);
-    setEditingPlanId(null);
-    setPlanForm({ name: '', yield: '2.5', days: '60', min: '100', desc: '' });
   };
 
   const handleEditPlanClick = (p: any) => {
@@ -1080,12 +838,21 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
     promptConfirm(
       "Delete Investment Plan",
       `Are you sure you want to permanently delete the investment plan '${name}'? This removes it from pool registration lists for clients.`,
-      () => {
-        const remaining = plans.filter(p => p.id !== id);
-        localStorage.setItem('linkfluence_investment_plans', JSON.stringify(remaining));
-        setPlans(remaining);
-        addLog(`Deleted investment pool schema config: ${name}`, 'warn');
-        triggerToast(`Plan deleted.`);
+      async () => {
+        const creds = getAdminCredentials();
+        if (!creds || !isSupabaseConfigured()) {
+          triggerToast('Supabase admin session required.');
+          return;
+        }
+        try {
+          await adminDeleteInvestmentPlan(creds, id);
+          await loadCatalogFromSupabase();
+          dispatchCatalogUpdated();
+          addLog(`Deleted investment pool schema config: ${name}`, 'warn');
+          triggerToast('Plan deleted.');
+        } catch (err: any) {
+          triggerToast(err.message || 'Failed to delete plan.');
+        }
       },
       "Delete Plan",
       true
@@ -1093,72 +860,87 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   };
 
   // Action 6: Manage Gateways Methods
-  const handleSaveGatewaySubmit = (e: React.FormEvent) => {
+  const handleSaveGatewaySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!gatewayForm.name.trim()) {
       triggerToast('Gateway label must not be empty.');
       return;
     }
 
-    let updatedGateways = [...paymentGateways];
+    const creds = getAdminCredentials();
+    if (!creds || !isSupabaseConfigured()) {
+      triggerToast('Supabase admin session required to manage payment methods.');
+      return;
+    }
+
     const gatewayObj = {
-      id: editingGatewayId || 'gateway-' + Date.now(),
+      id: editingGatewayId || '',
       name: gatewayForm.name,
       type: gatewayForm.type,
       address: gatewayForm.address,
       enabled: gatewayForm.enabled,
-      desc: gatewayForm.desc || 'Fast deposit routing.'
+      desc: gatewayForm.desc || 'Fast deposit routing.',
     };
 
-    if (isEditingGateway && editingGatewayId) {
-      updatedGateways = updatedGateways.map(g => g.id === editingGatewayId ? gatewayObj : g);
-    } else {
-      updatedGateways.push(gatewayObj);
+    try {
+      await adminUpsertPaymentMethod(creds, paymentMethodToDbPayload(gatewayObj));
+      await loadCatalogFromSupabase();
+      dispatchCatalogUpdated();
+      triggerToast('Payment method rules updated.');
+      addLog(`Tuned dynamic transaction routing rules for gateway ${gatewayForm.name}`, 'info');
+      setIsEditingGateway(false);
+      setEditingGatewayId(null);
+      setGatewayForm({ name: '', type: 'crypto', address: '', enabled: true, desc: '' });
+    } catch (err: any) {
+      triggerToast(err.message || 'Failed to save payment method.');
+      addLog(`Payment method save failed: ${err.message || 'unknown error'}`, 'warn');
     }
-
-    localStorage.setItem('linkfluence_payment_methods', JSON.stringify(updatedGateways));
-    setPaymentGateways(updatedGateways);
-    triggerToast(`Payment method rules updated.`);
-    addLog(`Tuned dynamic transaction routing rules for gateway ${gatewayForm.name}`, 'info');
-    roster.forEach(email => {
-      window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email } }));
-    });
-
-    setIsEditingGateway(false);
-    setEditingGatewayId(null);
-    setGatewayForm({ name: '', type: 'crypto', address: '', enabled: true, desc: '' });
   };
 
-  const handleToggleGatewayClick = (id: string) => {
-    const updated = paymentGateways.map(g => {
-      if (g.id === id) {
-        const nextState = !g.enabled;
-        addLog(`Toggled gateway channel ${g.name} status to: ${nextState ? 'Operational' : 'Maintenance'}`, 'info');
-        return { ...g, enabled: nextState };
-      }
-      return g;
-    });
-    localStorage.setItem('linkfluence_payment_methods', JSON.stringify(updated));
-    setPaymentGateways(updated);
-    triggerToast(`Payment gateway status updated.`);
-    roster.forEach(email => {
-      window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email } }));
-    });
+  const handleToggleGatewayClick = async (id: string) => {
+    const creds = getAdminCredentials();
+    if (!creds || !isSupabaseConfigured()) {
+      triggerToast('Supabase admin session required.');
+      return;
+    }
+
+    const target = paymentGateways.find((g) => g.id === id);
+    if (!target) return;
+
+    const nextState = !target.enabled;
+    try {
+      await adminUpsertPaymentMethod(
+        creds,
+        paymentMethodToDbPayload({ ...target, enabled: nextState })
+      );
+      await loadCatalogFromSupabase();
+      dispatchCatalogUpdated();
+      addLog(`Toggled gateway channel ${target.name} status to: ${nextState ? 'Operational' : 'Maintenance'}`, 'info');
+      triggerToast('Payment gateway status updated.');
+    } catch (err: any) {
+      triggerToast(err.message || 'Failed to update payment method.');
+    }
   };
 
   const handleDeleteGatewayClick = (id: string, name: string) => {
     promptConfirm(
       "Delete Payment Method",
       `Are you sure you want to permanently delete the payment option "${name}"? Active invoices mapped here will fall back or route to next priority gateway.`,
-      () => {
-        const remaining = paymentGateways.filter(g => g.id !== id);
-        localStorage.setItem('linkfluence_payment_methods', JSON.stringify(remaining));
-        setPaymentGateways(remaining);
-        addLog(`Deleted payment option configuration: ${name}`, 'warn');
-        triggerToast(`Payment option deleted.`);
-        roster.forEach(email => {
-          window.dispatchEvent(new CustomEvent('linkfluence_data_updated', { detail: { email } }));
-        });
+      async () => {
+        const creds = getAdminCredentials();
+        if (!creds || !isSupabaseConfigured()) {
+          triggerToast('Supabase admin session required.');
+          return;
+        }
+        try {
+          await adminDeletePaymentMethod(creds, id);
+          await loadCatalogFromSupabase();
+          dispatchCatalogUpdated();
+          addLog(`Deleted payment option configuration: ${name}`, 'warn');
+          triggerToast('Payment option deleted.');
+        } catch (err: any) {
+          triggerToast(err.message || 'Failed to delete payment method.');
+        }
       },
       "Delete Method",
       true
@@ -1197,12 +979,12 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       transactions: updatedTxList
     };
 
-    saveUserRecord(userEmail, updated);
+    void saveUserRecord(userEmail, updated);
     triggerToast(`Ledger cleared. Withdrawal transaction marked as Completed.`);
     addLog(`Settled payout invoice order of $${amount} to ${userEmail}. Clearance finalized.`, 'success');
     
     // Refresh roster view
-    loadRosterAndConfig();
+    refreshAdminData();
   };
 
   const handleDenyWithdrawal = (userEmail: string, txId: string, amount: number) => {
@@ -1225,11 +1007,11 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       transactions: updatedTxList
     };
 
-    saveUserRecord(userEmail, updated);
+    void saveUserRecord(userEmail, updated);
     triggerToast(`Withdrawal denied and reversed back to user's wallet!`);
     addLog(`Declined payout invoice order of $${amount} to ${userEmail}. Available funds refunded to balances.`, 'warn');
     
-    loadRosterAndConfig();
+    refreshAdminData();
   };
 
   // Action 7.5: Approve / Deny Deposit Requests
@@ -1269,11 +1051,11 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       transactions: updatedTxList
     };
 
-    saveUserRecord(userEmail, updated);
+    void saveUserRecord(userEmail, updated);
     triggerToast(`Deposit of $${amount} approved & account credited.`);
     addLog(`Operator approved deposit request of $${amount} for ${userEmail}. Balance & deposits credited.`, 'success');
     
-    loadRosterAndConfig();
+    refreshAdminData();
   };
 
   const handleDenyDeposit = (userEmail: string, txId: string, amount: number) => {
@@ -1290,11 +1072,11 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       transactions: updatedTxList
     };
 
-    saveUserRecord(userEmail, updated);
+    void saveUserRecord(userEmail, updated);
     triggerToast(`Deposit request of $${amount} declined.`);
     addLog(`Operator rejected deposit request of $${amount} for ${userEmail}.`, 'warn');
     
-    loadRosterAndConfig();
+    refreshAdminData();
   };
 
   // Action 8: SMTP Email Dispatch Simulation
@@ -1506,7 +1288,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
             
             <button
               type="button"
-              onClick={() => { setActiveTab('users'); loadRosterAndConfig(); }}
+              onClick={() => { setActiveTab('users'); refreshAdminData(); }}
               className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
                 activeTab === 'users' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
               }`}
@@ -1517,7 +1299,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
             <button
               type="button"
-              onClick={() => { setActiveTab('kyc'); loadRosterAndConfig(); }}
+              onClick={() => { setActiveTab('kyc'); refreshAdminData(); }}
               className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
                 activeTab === 'kyc' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
               }`}
@@ -1534,7 +1316,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
             <button
               type="button"
-              onClick={() => { setActiveTab('withdrawals'); loadRosterAndConfig(); }}
+              onClick={() => { setActiveTab('withdrawals'); refreshAdminData(); }}
               className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
                 activeTab === 'withdrawals' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
               }`}
@@ -1551,7 +1333,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
             <button
               type="button"
-              onClick={() => { setActiveTab('deposits'); loadRosterAndConfig(); }}
+              onClick={() => { setActiveTab('deposits'); refreshAdminData(); }}
               className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
                 activeTab === 'deposits' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
               }`}
@@ -1568,7 +1350,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
             <button
               type="button"
-              onClick={() => { setActiveTab('plans'); loadRosterAndConfig(); }}
+              onClick={() => { setActiveTab('plans'); refreshAdminData(); }}
               className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
                 activeTab === 'plans' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
               }`}
@@ -1579,7 +1361,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
             <button
               type="button"
-              onClick={() => { setActiveTab('payment-methods'); loadRosterAndConfig(); }}
+              onClick={() => { setActiveTab('payment-methods'); refreshAdminData(); }}
               className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
                 activeTab === 'payment-methods' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-400 hover:text-gray-600'
               }`}
@@ -1592,7 +1374,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
             <button
               type="button"
-              onClick={() => { setActiveTab('email-portal'); loadRosterAndConfig(); }}
+              onClick={() => { setActiveTab('email-portal'); refreshAdminData(); }}
               className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
                 activeTab === 'email-portal' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
               }`}
@@ -1707,7 +1489,11 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-bold text-gray-700">Country Location</label>
-                    <input type="text" className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-medium focus:ring-1 focus:ring-emerald-500 focus:outline-hidden" value={formCountry} onChange={e=>setFormCountry(e.target.value)} />
+                    <CountrySelect
+                      className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-medium focus:ring-1 focus:ring-emerald-500 focus:outline-hidden w-full cursor-pointer"
+                      value={formCountry}
+                      onChange={setFormCountry}
+                    />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-bold text-gray-700">Initial Balance ($ USD)</label>
@@ -1765,7 +1551,11 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-bold text-gray-700">Country Location</label>
-                    <input type="text" className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-medium focus:ring-1 focus:ring-rose-500" value={formCountry} onChange={e=>setFormCountry(e.target.value)} />
+                    <CountrySelect
+                      className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-medium focus:ring-1 focus:ring-rose-500 w-full cursor-pointer"
+                      value={formCountry}
+                      onChange={setFormCountry}
+                    />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-bold text-gray-700">Account Balance ($)</label>
@@ -1973,17 +1763,12 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                         <span className="text-gray-400">Claimed Country:</span> <strong className="text-gray-700">{r.kyc.country}</strong>
                         <span className="text-gray-400">Dispatch Date:</span> <strong className="text-gray-400 font-mono">{r.kyc.submittedAt || '2026-05-28 02:10'}</strong>
                       </div>
-                      {r.kyc.uploadedFileBase64 ? (
-                        <div className="mt-3 text-indigo-750 font-mono text-[10px] flex flex-col gap-1 text-left">
-                          <span className="font-bold flex items-center gap-1">📁 Attached ID Document: <span className="underline select-all text-indigo-900">{r.kyc.uploadedFileName || 'id_proof.jpg'}</span></span>
-                          <div className="mt-1 border border-indigo-150 rounded-xl overflow-hidden max-w-sm bg-white p-1 shadow-sm">
-                            <img 
-                              src={r.kyc.uploadedFileBase64} 
-                              alt="KYC Passport document upload" 
-                              className="max-h-56 w-auto rounded object-contain cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition duration-150"
-                            />
-                          </div>
-                        </div>
+                      {(r.kyc.uploadedFilePath || r.kyc.uploadedFileBase64) ? (
+                        <KycDocumentPreview
+                          filePath={r.kyc.uploadedFilePath}
+                          fileName={r.kyc.uploadedFileName}
+                          base64Fallback={r.kyc.uploadedFileBase64}
+                        />
                       ) : (
                         <div className="mt-3 p-2.5 bg-indigo-50/50 border border-indigo-100/30 text-indigo-750 text-[10px] rounded-lg leading-tight font-mono text-left">
                           <span className="block font-bold">📁 Simulated Passport / ID Scan:</span>
@@ -2556,7 +2341,11 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       {/* Elegant minimalist bottom footer */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-2 pt-5 border-t border-gray-150/40 text-[10.5px] font-mono text-gray-400 select-none">
         <span className="text-center sm:text-left leading-relaxed">
-          SECURE OPERATOR ACCESS LEVEL: <strong className="text-gray-600 uppercase font-bold">SYSTEM ADMINISTRATOR</strong> (affiliateassociateprogram)
+          SECURE OPERATOR ACCESS LEVEL: <strong className="text-gray-600 uppercase font-bold">SYSTEM ADMINISTRATOR</strong>
+          {(() => {
+            const adminUser = getAdminCredentials()?.username;
+            return adminUser ? ` (${adminUser})` : '';
+          })()}
         </span>
         <button
           type="button"
