@@ -338,7 +338,7 @@ export default function App() {
   if (activeModal === 'admin') {
     return (
       <div id="linkfluence-app-root" className="flex flex-col bg-[#FAFAF7] relative min-h-screen">
-        <div className="flex-1 w-full max-w-[90rem] mx-auto p-4 sm:p-6 md:p-8">
+        <div className="flex-1 w-full max-w-[88rem] mx-auto px-4 md:px-8 pt-4 md:pt-6">
           <Suspense fallback={<PanelLoader label="Loading admin panel…" />}>
             <AdminPanel
               currentUser={currentUser}

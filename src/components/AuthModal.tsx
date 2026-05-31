@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { User, Mail, Lock, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { supabaseService } from '../lib/supabaseService';
-import { DEFAULT_COUNTRY, CountrySelect } from '../lib/countries';
+import { DEFAULT_COUNTRY, CountrySelect } from '../lib/CountrySelect';
 
 interface AuthModalProps {
   initialTab?: 'signup' | 'signin';

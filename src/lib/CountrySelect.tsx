@@ -11,7 +11,7 @@ export const DEFAULT_COUNTRY = 'United States of America';
 let cachedOptions: CountryOption[] | null = null;
 let loadPromise: Promise<CountryOption[]> | null = null;
 
-async function loadCountryOptions(): Promise<CountryOption[]> {
+export async function loadCountryOptions(): Promise<CountryOption[]> {
   if (cachedOptions) return cachedOptions;
   if (!loadPromise) {
     loadPromise = Promise.all([

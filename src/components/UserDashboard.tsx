@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { supabaseService, buildProfilePayload, mapProfileToDashboardState } from '../lib/supabaseService';
 import { catalogService } from '../lib/catalogService';
-import { CountrySelect } from '../lib/countries';
+import { CountrySelect } from '../lib/CountrySelect';
 import { 
   ArrowUpRight, 
   ArrowDownLeft, 

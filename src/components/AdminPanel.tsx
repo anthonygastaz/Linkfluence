@@ -25,7 +25,7 @@ import {
   paymentMethodToDbPayload,
   dispatchCatalogUpdated,
 } from '../lib/catalogService';
-import { CountrySelect, DEFAULT_COUNTRY } from '../lib/countries';
+import { CountrySelect, DEFAULT_COUNTRY } from '../lib/CountrySelect';
 import { 
   Users, 
   TrendingUp, 
@@ -56,7 +56,12 @@ import {
   PlusCircle,
   ToggleLeft,
   ToggleRight,
-  FileText
+  FileText,
+  ChevronLeft,
+  ChevronRight,
+  Menu,
+  EyeOff,
+  LogOut
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -155,7 +160,7 @@ function KycDocumentPreview({
       </span>
       <div className="mt-1 border border-indigo-150 rounded-xl overflow-hidden max-w-sm bg-white p-1 shadow-sm">
         {isPdf ? (
-          <a href={previewUrl} target="_blank" rel="noreferrer" className="text-xs text-[#3CB371] font-bold p-3 block">
+          <a href={previewUrl} target="_blank" rel="noreferrer" className="text-xs text-rose-500 font-bold p-3 block">
             Open PDF document
           </a>
         ) : (
@@ -184,6 +189,8 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
   // Active admin tab selection
   const [activeTab, setActiveTab] = useState<'users' | 'kyc' | 'deposits' | 'withdrawals' | 'plans' | 'payment-methods' | 'email-portal' | 'system-logs'>('users');
+  const [isMenuCollapsed, setIsMenuCollapsed] = useState<boolean>(true);
+  const [isMenuHidden, setIsMenuHidden] = useState<boolean>(false);
 
   // Unified State Stores (seeded with standard users if empty)
   const [roster, setRoster] = useState<string[]>([]);
@@ -493,8 +500,8 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       return;
     }
 
-    const ok = await verifyAdminLogin(adminUsername, adminPassword);
-    if (ok) {
+    const result = await verifyAdminLogin(adminUsername, adminPassword);
+    if (result.ok) {
       storeAdminCredentials({ username: adminUsername, password: adminPassword });
       setIsAdminAuthenticated(true);
       triggerToast('Security clearance approved. Administrative token successfully minted.');
@@ -502,7 +509,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
       await fetchGlobalUsers();
       await loadCatalogFromSupabase();
     } else {
-      setAuthError('Invalid credentials. Clear text telemetry mismatch detected.');
+      setAuthError(result.error ?? 'Invalid username or password.');
       addLog('Failed administrator login attempt.', 'warn');
     }
   };
@@ -510,7 +517,10 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   const handleLogoutAdmin = () => {
     clearAdminCredentials();
     setIsAdminAuthenticated(false);
-    triggerToast('Administrative token invalidated. Logged out.');
+    setAdminUsername('');
+    setAdminPassword('');
+    setAuthError(null);
+    triggerToast('Signed out.');
     addLog('Administrator signed out.', 'info');
   };
 
@@ -1129,53 +1139,35 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   // Auth Gate check
   if (!isAdminAuthenticated) {
     return (
-      <div className="flex flex-col gap-6 text-left font-sans bg-gray-50/50 -m-6 p-6 md:p-12 rounded-3xl min-h-[580px] justify-center items-center">
-        <div className="max-w-md w-full bg-white border border-gray-150 rounded-2xl shadow-xl flex flex-col gap-6 relative overflow-hidden p-8">
-          {/* Subtle geometric overlay for a futuristic secure portal look */}
-          <div className="absolute top-0 right-0 p-6 opacity-[0.03] pointer-events-none">
-            <Lock size={150} className="text-rose-500" />
-          </div>
-          
-          <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-rose-400 via-rose-500 to-rose-600" />
-
-          {/* Header & Logo Section */}
+      <div className="flex flex-col gap-6 text-left font-sans min-h-[70vh] justify-center items-center px-2">
+        <div className="max-w-md w-full bg-white border border-gray-100 rounded-2xl shadow-sm flex flex-col gap-6 p-8">
           <div className="flex flex-col items-center gap-3 text-center">
-            <div 
-              className="p-3 bg-rose-50 hover:bg-rose-100 rounded-2xl border border-rose-100/60 shadow-xs inline-flex items-center justify-center cursor-pointer transition-all duration-200"
+            <button
+              type="button"
+              className="p-3 bg-rose-50 hover:bg-rose-100 rounded-2xl border border-rose-100 inline-flex items-center justify-center cursor-pointer transition-all duration-200"
               onClick={onClose}
               title="Return to homepage"
             >
-              <LogoIcon className="text-rose-500 transform hover:rotate-6 transition-transform duration-300" size="38" />
-            </div>
-            
-            <div 
-              className="flex flex-col gap-1 mt-1 cursor-pointer hover:opacity-85 transition-opacity"
-              onClick={onClose}
-              title="Return to homepage"
-            >
-              <div className="flex items-center justify-center gap-1.5">
-                <span className="text-xl font-bold tracking-tight text-black font-sans">Affiliate Associate Program</span>
-                <span className="bg-rose-50 text-rose-600 border border-rose-100/80 text-[10px] uppercase font-mono px-2 py-0.5 rounded-full font-bold">
-                  Console
-                </span>
-              </div>
-              <h3 className="text-sm font-semibold text-gray-400 mt-1">Administrative Port Shield</h3>
-              <p className="text-gray-400 text-[11px] leading-relaxed max-w-[285px] mx-auto mt-0.5">
-                Enter secure gateway parameters to interact with the ledger system, transaction queues, and dynamic configurations.
+              <LogoIcon className="text-rose-500" size="38" />
+            </button>
+            <div className="flex flex-col gap-1">
+              <h3 className="text-xl font-bold tracking-tight text-black font-sans">Admin Sign In</h3>
+              <p className="text-gray-500 text-sm leading-relaxed max-w-[320px] mx-auto">
+                Sign in with your administrator credentials to manage users, KYC, and platform settings.
               </p>
             </div>
           </div>
 
           {authError && (
-            <div className="bg-rose-50 border border-rose-100 rounded-xl p-3.5 text-xs text-rose-600 font-medium animate-[fadeIn_0.15s_ease-out] flex gap-2 items-start text-left">
-              <span className="text-rose-500 mt-0.5 font-bold">⚠</span>
+            <div className="bg-rose-50 border border-rose-100 rounded-xl p-3.5 text-xs text-rose-600 font-medium flex gap-2 items-start text-left">
+              <AlertTriangle size={14} className="text-rose-500 mt-0.5 shrink-0" />
               <span>{authError}</span>
             </div>
           )}
 
           <form onSubmit={handleAdminVerify} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5 text-left">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500 font-sans">Security Operator Key</label>
+              <label className="text-xs font-semibold text-gray-600">Username</label>
               <div className="relative flex items-center">
                 <span className="absolute left-3.5 text-gray-400">
                   <Users size={16} />
@@ -1184,7 +1176,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                   type="text"
                   required
                   placeholder="Enter username"
-                  className="w-full border border-gray-150 rounded-xl pl-11 pr-4 py-3 text-xs bg-gray-50/30 hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-rose-500 text-black transition-all font-sans"
+                  className="w-full border border-gray-200 rounded-xl pl-11 pr-4 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 text-black transition-all font-sans"
                   value={adminUsername}
                   onChange={e => setAdminUsername(e.target.value)}
                 />
@@ -1192,9 +1184,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
             </div>
 
             <div className="flex flex-col gap-1.5 text-left">
-              <div className="flex justify-between items-center">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500 font-sans">Authentication Password</label>
-              </div>
+              <label className="text-xs font-semibold text-gray-600">Password</label>
               <div className="relative flex items-center">
                 <span className="absolute left-3.5 text-gray-400">
                   <Lock size={16} />
@@ -1202,8 +1192,8 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                 <input
                   type="password"
                   required
-                  placeholder="Password"
-                  className="w-full border border-gray-150 rounded-xl pl-11 pr-4 py-3 text-xs bg-gray-50/30 hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-rose-500 text-black transition-all font-sans"
+                  placeholder="Enter password"
+                  className="w-full border border-gray-200 rounded-xl pl-11 pr-4 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 text-black transition-all font-sans"
                   value={adminPassword}
                   onChange={e => setAdminPassword(e.target.value)}
                 />
@@ -1212,20 +1202,19 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
             <button
               type="submit"
-              className="mt-2 w-full bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white font-bold py-3.5 rounded-xl text-xs cursor-pointer transition shadow-sm hover:shadow-md flex items-center justify-center gap-1.5"
+              className="mt-1 w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-3.5 rounded-xl text-sm cursor-pointer transition shadow-sm flex items-center justify-center gap-2"
             >
               <ShieldCheck size={16} />
-              <span>Acquire Security Token</span>
+              <span>Sign In</span>
             </button>
           </form>
 
-          {/* Quick exit option */}
           <button
             type="button"
             onClick={onClose}
-            className="text-[11px] text-gray-400 hover:text-gray-600 transition font-bold uppercase tracking-wider text-center mt-1 cursor-pointer"
+            className="text-xs text-gray-400 hover:text-gray-600 transition font-semibold text-center cursor-pointer"
           >
-            ← Exit Port & Back to Dashboard
+            ← Back to homepage
           </button>
         </div>
       </div>
@@ -1237,196 +1226,223 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
   const pendingWithdrawalsList = getPendingWithdrawals();
   const pendingDepositsList = getPendingDeposits();
 
+  const adminDisplayName = getAdminCredentials()?.username || adminUsername || 'Admin';
+  const pendingQueueCount = pendingKYCCount + pendingWithdrawalsList.length + pendingDepositsList.length;
+
+  const navBtnClass = (tab: typeof activeTab) =>
+    `flex items-center ${isMenuCollapsed ? 'justify-center px-1' : 'justify-between gap-3 px-3.5'} py-2.5 rounded-xl text-left text-xs sm:text-sm font-semibold cursor-pointer transition-all duration-200 ${
+      activeTab === tab ? 'bg-rose-500 text-white shadow-sm shadow-rose-500/10' : 'text-gray-500 hover:bg-gray-50'
+    }`;
+
   return (
-    <div className="flex flex-col gap-6 text-left font-sans min-h-[650px] animate-[fadeIn_0.2s_ease-out]">
-      
-      {/* Top Banner Header with back to dashboard */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-stone-900 border border-stone-850 text-white p-5 rounded-2xl relative overflow-hidden shadow-md">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(244,63,94,0.15)_0%,_transparent_55%)] pointer-events-none"></div>
-        <div className="relative z-10 flex items-center gap-3">
-          <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-xl hidden sm:block">
-            <Settings className="text-rose-400 w-5 h-5 animate-[spin_20s_linear_infinite]" />
-          </div>
-          <div>
-            <span className="text-rose-400 text-[10px] font-bold uppercase tracking-widest font-mono">System Infrastructure Terminal</span>
-            <h3 className="text-lg font-bold text-white tracking-tight mt-0.5">Control Tower Console v3.5</h3>
-            <p className="text-stone-400 text-xs mt-0.5">Global account adjustments, payouts clearing, KYC verification routing, and API core gateways.</p>
-          </div>
-        </div>
-        <div className="relative z-10 flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-1.5 bg-rose-500/10 border border-[#f43f5e]/15 px-3 py-1.5 rounded-full text-rose-400 text-xs font-mono font-bold uppercase shadow-inner">
-            <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
-            <span>Operational Mode</span>
-          </div>
+    <div className="flex flex-col gap-0 text-left font-sans min-h-screen animate-[fadeIn_0.2s_ease-out]">
+      {/* Top navbar — matches user dashboard */}
+      <nav className="sticky top-0 w-full z-50 px-0 py-2 bg-white/95 backdrop-blur-md border-b border-gray-100 shadow-xs -mt-2 mb-4 md:mb-6">
+        <div className="flex items-center justify-between">
           <button
             type="button"
-            onClick={handleLogoutAdmin}
-            className="hover:bg-rose-500/10 hover:text-rose-400 border border-stone-700 hover:border-rose-500/20 text-stone-300 font-bold text-[11px] py-1.5 px-3 rounded-lg transition-all duration-150 select-none cursor-pointer"
-          >
-            Terminal Lock
-          </button>
-          <button
-            type="button"
+            className="flex items-center gap-1.5 sm:gap-2 cursor-pointer hover:opacity-85 transition-opacity text-left"
             onClick={onClose}
-            className="bg-white hover:bg-neutral-100 text-stone-900 font-bold text-xs py-1.5 px-3.5 rounded-lg transition-all shadow-xs flex items-center gap-1 cursor-pointer select-none"
+            title="Return to homepage"
           >
-            <ArrowRight size={13} className="rotate-180" />
-            <span>Exit Console</span>
+            <LogoIcon className="text-rose-500 flex-shrink-0" size="22" />
+            <span className="text-sm sm:text-xl font-semibold tracking-tight text-black font-sans leading-tight">
+              Affiliate Associate Program
+            </span>
+            <span className="hidden sm:inline-flex bg-rose-50 text-rose-500 border border-rose-200 text-[10px] uppercase font-bold px-2 py-0.5 rounded-full">
+              Admin
+            </span>
           </button>
-        </div>
-      </div>
 
-      {/* Main Structural Layout split */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
-        {/* Left Side Navigation & Metrics Column */}
-        <div className="lg:col-span-3 flex flex-col gap-5">
-          
-          {/* Navigation vertical block */}
-          <div className="bg-white border border-gray-150 rounded-2xl p-2.5 shadow-xs flex flex-col gap-1 md:gap-1.5">
-            <span className="text-[10px] uppercase font-mono font-bold text-gray-400 px-3 py-1 mt-1 tracking-wider">Control Registers</span>
-            
-            <button
-              type="button"
-              onClick={() => { setActiveTab('users'); refreshAdminData(); }}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
-                activeTab === 'users' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-              }`}
-            >
-              <span className="flex items-center gap-2"><Users size={14} /> Users Directory</span>
-              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-medium ${activeTab === 'users' ? 'bg-white/15' : 'bg-gray-100'}`}>{roster.length}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setActiveTab('kyc'); refreshAdminData(); }}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
-                activeTab === 'kyc' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-              }`}
-            >
-              <span className="flex items-center gap-2"><UserCheck size={14} /> KYC Direct Queue</span>
-              {pendingKYCCount > 0 ? (
-                <span className="bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold animate-bounce">
-                  {pendingKYCCount}
-                </span>
-              ) : (
-                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-medium ${activeTab === 'kyc' ? 'bg-white/15' : 'bg-gray-100'}`}>0</span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setActiveTab('withdrawals'); refreshAdminData(); }}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
-                activeTab === 'withdrawals' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-              }`}
-            >
-              <span className="flex items-center gap-2"><Wallet size={14} /> Payouts Desk</span>
-              {pendingWithdrawalsList.length > 0 ? (
-                <span className="bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold animate-pulse">
-                  {pendingWithdrawalsList.length}
-                </span>
-              ) : (
-                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-medium ${activeTab === 'withdrawals' ? 'bg-white/15' : 'bg-gray-100'}`}>0</span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setActiveTab('deposits'); refreshAdminData(); }}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
-                activeTab === 'deposits' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-              }`}
-            >
-              <span className="flex items-center gap-2"><ArrowDownLeft size={14} /> Deposits Queue</span>
-              {pendingDepositsList.length > 0 ? (
-                <span className="bg-[#E6F7F0] text-[#3CB371] px-1.5 py-0.5 rounded-full text-[9px] font-extrabold animate-pulse">
-                  {pendingDepositsList.length}
-                </span>
-              ) : (
-                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-medium ${activeTab === 'deposits' ? 'bg-white/15' : 'bg-gray-100'}`}>0</span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setActiveTab('plans'); refreshAdminData(); }}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
-                activeTab === 'plans' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-              }`}
-            >
-              <span className="flex items-center gap-2"><TrendingUp size={14} /> Investment Plans</span>
-              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-medium ${activeTab === 'plans' ? 'bg-white/15' : 'bg-gray-100'}`}>{plans.length}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setActiveTab('payment-methods'); refreshAdminData(); }}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
-                activeTab === 'payment-methods' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-400 hover:text-gray-600'
-              }`}
-            >
-              <span className="flex items-center gap-2"><Sliders size={14} /> Payment Settings</span>
-              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-medium ${activeTab === 'payment-methods' ? 'bg-white/15' : 'bg-gray-100'}`}>
-                {paymentGateways.length}
+          <div className="flex items-center gap-2 sm:gap-3 bg-white border border-gray-100 rounded-full p-1 sm:pl-2.5 sm:pr-3.5 sm:py-1 shadow-xs">
+            <span className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-rose-50 text-rose-500 font-bold text-xs sm:text-sm flex items-center justify-center flex-shrink-0 uppercase">
+              {adminDisplayName.charAt(0)}
+            </span>
+            <div className="hidden xs:flex flex-col text-left">
+              <span className="text-xs font-bold text-black font-sans leading-none truncate max-w-[100px] sm:max-w-[140px]">
+                {adminDisplayName}
               </span>
-            </button>
-
+              <span className="text-[9px] font-semibold text-gray-400 mt-0.5 hidden sm:inline-block">Administrator</span>
+            </div>
             <button
               type="button"
-              onClick={() => { setActiveTab('email-portal'); refreshAdminData(); }}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
-                activeTab === 'email-portal' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-              }`}
+              onClick={handleLogoutAdmin}
+              className="text-[10px] sm:text-xs text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-full font-bold px-2 py-0.5 sm:py-1 cursor-pointer font-sans transition-all duration-150 flex items-center gap-1"
             >
-              <span className="flex items-center gap-2"><Mail size={14} /> Client SMTP Direct</span>
-              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-medium ${activeTab === 'email-portal' ? 'bg-white/15' : 'bg-gray-100'}`}>{sentMailsLog.length}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('system-logs')}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-155 text-left cursor-pointer select-none ${
-                activeTab === 'system-logs' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-              }`}
-            >
-              <span className="flex items-center gap-2"><Activity size={14} /> System Security Logs</span>
-              <span className={`text-[9px] uppercase font-mono px-1.5 py-0.5 rounded font-extrabold tracking-wider ${activeTab === 'system-logs' ? 'bg-neutral-800 text-rose-400' : 'bg-emerald-50 text-emerald-600 animate-pulse'}`}>ONLINE</span>
+              <LogOut size={12} className="sm:hidden" />
+              <span>Sign Out</span>
             </button>
           </div>
-
-          {/* Quick Metrics Stats and micro-dashboard */}
-          <div className="bg-white border border-gray-150 p-4 rounded-2xl shadow-xs flex flex-col gap-3">
-            <span className="text-[10px] text-gray-400 uppercase font-mono tracking-widest font-extrabold">Infrastructure Stats</span>
-            
-            <div className="flex flex-col gap-2.5">
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-gray-500">Security Cleared Users</span>
-                <span className="font-mono font-bold text-black">{roster.length}</span>
-              </div>
-              <div className="w-full bg-gray-100 h-1 rounded-full overflow-hidden">
-                <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${Math.min(100, (roster.length / 10) * 100)}%` }}></div>
-              </div>
-
-              <div className="flex justify-between items-center text-xs mt-1">
-                <span className="text-gray-500 font-sans">Pending Actions Queue</span>
-                <span className="font-mono font-bold text-rose-500">{pendingKYCCount + pendingWithdrawalsList.length + pendingDepositsList.length} Tasks</span>
-              </div>
-              <div className="w-full bg-gray-100 h-1 rounded-full overflow-hidden">
-                <div className="bg-rose-500 h-full rounded-full" style={{ width: `${Math.min(100, ((pendingKYCCount + pendingWithdrawalsList.length + pendingDepositsList.length) / 5) * 100)}%` }}></div>
-              </div>
-            </div>
-
-            <div className="border-t border-gray-100 pt-2.5 mt-1 flex flex-col gap-1 text-left">
-              <span className="text-[9.5px] text-gray-400 uppercase font-mono leading-none tracking-tight font-bold">Active Port Telemetry</span>
-              <span className="text-[10px] font-mono text-gray-500 leading-normal">Node: Docker-SSL-3000</span>
-            </div>
-          </div>
-
         </div>
+      </nav>
 
-        {/* Right Tab Content Column - Container wrapper for selected dynamic panel */}
-        <div className="lg:col-span-9 bg-white border border-gray-150 rounded-2xl p-5 md:p-6 shadow-xs min-h-[500px]">
+      <div className="w-full flex flex-col lg:flex-row gap-6 md:gap-8 pb-12">
+        {/* Collapsible sidebar — matches user dashboard */}
+        {!isMenuHidden && (
+          <aside
+            className={`hidden lg:flex transition-all duration-300 ease-in-out shrink-0 ${
+              isMenuCollapsed ? 'lg:w-[78px]' : 'lg:w-64'
+            } bg-white border border-gray-100/50 rounded-2xl p-4 flex-col gap-1.5 lg:sticky lg:top-24 lg:h-[calc(100vh-8rem)] shadow-sm z-10`}
+          >
+            <div className="px-1 py-1 mb-3 border-b border-gray-50/50 pb-3">
+              <div className={`flex items-center ${isMenuCollapsed ? 'justify-center' : 'gap-3'}`}>
+                <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-500 font-bold text-lg flex items-center justify-center border border-rose-100 flex-shrink-0 uppercase">
+                  {adminDisplayName.charAt(0)}
+                </div>
+                {!isMenuCollapsed && (
+                  <div className="flex flex-col text-left truncate">
+                    <h4 className="text-sm font-bold text-black font-sans leading-none truncate">{adminDisplayName}</h4>
+                    <span className="text-[10px] font-semibold text-rose-500 mt-1 uppercase tracking-wider">Admin Panel</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <button type="button" onClick={() => { setActiveTab('users'); refreshAdminData(); }} title={isMenuCollapsed ? 'Users' : ''} className={navBtnClass('users')}>
+              <span className={`flex items-center ${isMenuCollapsed ? '' : 'gap-3'}`}><Users size={18} />{!isMenuCollapsed && <span>Users</span>}</span>
+              {!isMenuCollapsed && <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/20">{roster.length}</span>}
+            </button>
+
+            <button type="button" onClick={() => { setActiveTab('kyc'); refreshAdminData(); }} title={isMenuCollapsed ? 'KYC Review' : ''} className={navBtnClass('kyc')}>
+              <span className={`flex items-center ${isMenuCollapsed ? '' : 'gap-3'}`}><UserCheck size={18} />{!isMenuCollapsed && <span>KYC Review</span>}</span>
+              {!isMenuCollapsed && (
+                pendingKYCCount > 0 ? (
+                  <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full text-[10px] font-bold">{pendingKYCCount}</span>
+                ) : (
+                  <span className="text-[10px] font-mono opacity-70">0</span>
+                )
+              )}
+            </button>
+
+            <button type="button" onClick={() => { setActiveTab('withdrawals'); refreshAdminData(); }} title={isMenuCollapsed ? 'Withdrawals' : ''} className={navBtnClass('withdrawals')}>
+              <span className={`flex items-center ${isMenuCollapsed ? '' : 'gap-3'}`}><Wallet size={18} />{!isMenuCollapsed && <span>Withdrawals</span>}</span>
+              {!isMenuCollapsed && pendingWithdrawalsList.length > 0 && (
+                <span className="bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full text-[10px] font-bold">{pendingWithdrawalsList.length}</span>
+              )}
+            </button>
+
+            <button type="button" onClick={() => { setActiveTab('deposits'); refreshAdminData(); }} title={isMenuCollapsed ? 'Deposits' : ''} className={navBtnClass('deposits')}>
+              <span className={`flex items-center ${isMenuCollapsed ? '' : 'gap-3'}`}><ArrowDownLeft size={18} />{!isMenuCollapsed && <span>Deposits</span>}</span>
+              {!isMenuCollapsed && pendingDepositsList.length > 0 && (
+                <span className="bg-rose-50 text-rose-500 px-1.5 py-0.5 rounded-full text-[10px] font-bold">{pendingDepositsList.length}</span>
+              )}
+            </button>
+
+            <button type="button" onClick={() => { setActiveTab('plans'); refreshAdminData(); }} title={isMenuCollapsed ? 'Investment Plans' : ''} className={navBtnClass('plans')}>
+              <span className={`flex items-center ${isMenuCollapsed ? '' : 'gap-3'}`}><TrendingUp size={18} />{!isMenuCollapsed && <span>Investment Plans</span>}</span>
+            </button>
+
+            <button type="button" onClick={() => { setActiveTab('payment-methods'); refreshAdminData(); }} title={isMenuCollapsed ? 'Payment Methods' : ''} className={navBtnClass('payment-methods')}>
+              <span className={`flex items-center ${isMenuCollapsed ? '' : 'gap-3'}`}><Sliders size={18} />{!isMenuCollapsed && <span>Payment Methods</span>}</span>
+            </button>
+
+            <button type="button" onClick={() => { setActiveTab('email-portal'); refreshAdminData(); }} title={isMenuCollapsed ? 'Email' : ''} className={navBtnClass('email-portal')}>
+              <span className={`flex items-center ${isMenuCollapsed ? '' : 'gap-3'}`}><Mail size={18} />{!isMenuCollapsed && <span>Email</span>}</span>
+            </button>
+
+            <button type="button" onClick={() => setActiveTab('system-logs')} title={isMenuCollapsed ? 'Activity Log' : ''} className={navBtnClass('system-logs')}>
+              <span className={`flex items-center ${isMenuCollapsed ? '' : 'gap-3'}`}><Activity size={18} />{!isMenuCollapsed && <span>Activity Log</span>}</span>
+            </button>
+
+            <div className="border-t border-gray-100/80 mt-auto pt-3 flex flex-col gap-1">
+              <button
+                type="button"
+                onClick={() => setIsMenuCollapsed(!isMenuCollapsed)}
+                title={isMenuCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                className={`hidden lg:flex items-center ${isMenuCollapsed ? 'justify-center px-1' : 'gap-3 px-3.5'} py-2 rounded-xl text-left text-xs text-gray-400 hover:bg-gray-50 hover:text-gray-700 cursor-pointer transition-colors duration-150`}
+              >
+                {isMenuCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+                {!isMenuCollapsed && <span className="font-medium">Collapse Menu</span>}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsMenuHidden(true)}
+                title="Hide navigation"
+                className={`flex items-center ${isMenuCollapsed ? 'justify-center px-1' : 'gap-3 px-3.5'} py-2 rounded-xl text-left text-xs text-gray-400 hover:bg-gray-50 hover:text-gray-700 cursor-pointer transition-colors duration-150`}
+              >
+                <EyeOff size={16} />
+                {!isMenuCollapsed && <span className="font-medium">Hide Navigation</span>}
+              </button>
+              <button
+                type="button"
+                onClick={handleLogoutAdmin}
+                className={`flex items-center ${isMenuCollapsed ? 'justify-center px-1' : 'gap-3 px-3.5'} py-2 rounded-xl text-left text-xs text-rose-500 hover:bg-rose-50 cursor-pointer transition-colors duration-150`}
+              >
+                <LogOut size={16} />
+                {!isMenuCollapsed && <span className="font-medium">Sign Out</span>}
+              </button>
+            </div>
+          </aside>
+        )}
+
+        <main className="flex-1 min-w-0 flex flex-col gap-5">
+          {isMenuHidden && (
+            <div className="hidden lg:flex items-center justify-between pb-1 animate-[fadeIn_0.2s_ease-out]">
+              <button
+                type="button"
+                onClick={() => setIsMenuHidden(false)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 font-semibold text-xs rounded-full shadow-sm border border-gray-100 transition-all duration-150 cursor-pointer"
+              >
+                <Menu size={14} className="text-rose-500" />
+                <span>Show Navigation Menu</span>
+              </button>
+            </div>
+          )}
+
+          {/* Mobile tab picker */}
+          <div className="lg:hidden flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-none">
+            {([
+              ['users', 'Users', Users],
+              ['kyc', 'KYC', UserCheck],
+              ['withdrawals', 'Withdrawals', Wallet],
+              ['deposits', 'Deposits', ArrowDownLeft],
+              ['plans', 'Plans', TrendingUp],
+              ['payment-methods', 'Payments', Sliders],
+              ['email-portal', 'Email', Mail],
+              ['system-logs', 'Log', Activity],
+            ] as const).map(([tab, label, Icon]) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => { setActiveTab(tab); refreshAdminData(); }}
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  activeTab === tab ? 'bg-rose-500 text-white' : 'bg-white border border-gray-100 text-gray-500'
+                }`}
+              >
+                <Icon size={14} />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Overview header */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white border border-gray-100/40 p-5 sm:p-6 rounded-2xl shadow-xs">
+            <div className="flex flex-col">
+              <span className="text-rose-500 text-xs font-bold uppercase tracking-widest">Admin workspace</span>
+              <h2 className="text-xl sm:text-2xl font-bold font-sans text-black mt-1">Hello, {adminDisplayName}</h2>
+              <p className="text-gray-500 text-xs sm:text-sm mt-0.5">
+                {roster.length} users · {pendingQueueCount} pending {pendingQueueCount === 1 ? 'action' : 'actions'}
+              </p>
+            </div>
+            <div className="flex gap-2 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={refreshAdminData}
+                className="flex-1 sm:flex-initial border border-gray-200 bg-white hover:bg-gray-50 text-gray-800 text-xs font-semibold px-4 py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw size={14} className="text-rose-500" /> Refresh
+              </button>
+              <button
+                type="button"
+                onClick={handleLogoutAdmin}
+                className="flex-1 sm:flex-initial bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 text-xs font-semibold px-4 py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <LogOut size={14} /> Sign Out
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white border border-gray-100 rounded-2xl p-5 md:p-6 shadow-xs min-h-[500px]">
 
       {/* SEC 1: USER ACCOUNTS CATALOG MANAGEMENT */}
       {activeTab === 'users' && (
@@ -1434,8 +1450,8 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
           
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
-              <h4 className="text-sm font-bold text-black uppercase tracking-wider font-mono">Member Accounts Directory</h4>
-              <p className="text-gray-400 text-xs">Review total users registered in dynamic database, deploy adjustments, edit, or delete credentials.</p>
+              <h4 className="text-sm font-bold text-black uppercase tracking-wider font-mono">Users</h4>
+              {/* <p className="text-gray-400 text-xs">Review total users registered in dynamic database, deploy adjustments, edit, or delete credentials.</p> */}
             </div>
             
             <div className="flex flex-wrap gap-2">
@@ -1449,7 +1465,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                   setFormKycStatus('Unregistered');
                   setIsCreatingUser(true);
                 }}
-                className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center gap-1.5 transition-all duration-150 cursor-pointer select-none shadow-xs active:scale-95"
+                className="bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center gap-1.5 transition-all duration-150 cursor-pointer select-none shadow-xs active:scale-95"
               >
                 <PlusCircle size={15} />
                 <span>Create Partner Account</span>
@@ -1472,7 +1488,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
               <div className="absolute inset-0" onClick={() => setIsCreatingUser(false)}></div>
               <form onSubmit={handleCreateUserSubmit} className="relative z-10 w-full max-w-2xl bg-white border border-gray-150 p-6 rounded-3xl flex flex-col gap-5 shadow-2xl animate-[scaleIn_0.2s_ease-out] text-left">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
-                  <span className="text-xs font-mono font-bold text-emerald-500 uppercase flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-mono font-bold text-rose-500 uppercase flex flex-wrap items-center gap-1.5">
                     <PlusCircle size={15} /> Seed New Alliance Account
                   </span>
                   <button type="button" onClick={() => setIsCreatingUser(false)} className="self-end sm:self-auto p-1 px-2 border border-gray-150 rounded-lg text-xs text-gray-500 hover:text-gray-800 hover:bg-gray-50 font-bold transition">Cancel</button>
@@ -1481,34 +1497,34 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-left">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-bold text-gray-700">Full Name</label>
-                    <input type="text" className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-medium focus:ring-1 focus:ring-emerald-500 focus:outline-hidden" required placeholder="Liam Harris" value={formName} onChange={e=>setFormName(e.target.value)} />
+                    <input type="text" className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-medium focus:ring-1 focus:ring-rose-500 focus:outline-hidden" required placeholder="Liam Harris" value={formName} onChange={e=>setFormName(e.target.value)} />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-bold text-gray-700">Email Address</label>
-                    <input type="email" className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-medium focus:ring-1 focus:ring-emerald-500 focus:outline-hidden" required placeholder="name@domain.com" value={formEmail} onChange={e=>setFormEmail(e.target.value)} />
+                    <input type="email" className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-medium focus:ring-1 focus:ring-rose-500 focus:outline-hidden" required placeholder="name@domain.com" value={formEmail} onChange={e=>setFormEmail(e.target.value)} />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-bold text-gray-700">Country Location</label>
                     <CountrySelect
-                      className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-medium focus:ring-1 focus:ring-emerald-500 focus:outline-hidden w-full cursor-pointer"
+                      className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-medium focus:ring-1 focus:ring-rose-500 focus:outline-hidden w-full cursor-pointer"
                       value={formCountry}
                       onChange={setFormCountry}
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-bold text-gray-700">Initial Balance ($ USD)</label>
-                    <input type="number" className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-mono font-bold focus:ring-1 focus:ring-emerald-500 focus:outline-hidden" value={formBalance} onChange={e=>setFormBalance(e.target.value)} />
+                    <input type="number" className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-mono font-bold focus:ring-1 focus:ring-rose-500 focus:outline-hidden" value={formBalance} onChange={e=>setFormBalance(e.target.value)} />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs text-left">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-bold text-gray-700">Phone</label>
-                    <input type="text" className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-mono focus:ring-1 focus:ring-emerald-500 focus:outline-hidden" placeholder="+1 (555) 012-3456" value={formPhone} onChange={e=>setFormPhone(e.target.value)} />
+                    <input type="text" className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-mono focus:ring-1 focus:ring-rose-500 focus:outline-hidden" placeholder="+1 (555) 012-3456" value={formPhone} onChange={e=>setFormPhone(e.target.value)} />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-bold text-gray-700">Initial Profits ($ USD)</label>
-                    <input type="number" className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-mono font-bold focus:ring-1 focus:ring-emerald-500 focus:outline-hidden" value={formProfit} onChange={e=>setFormProfit(e.target.value)} />
+                    <input type="number" className="border border-gray-200 rounded-lg p-2.5 bg-white text-black text-xs font-mono font-bold focus:ring-1 focus:ring-rose-500 focus:outline-hidden" value={formProfit} onChange={e=>setFormProfit(e.target.value)} />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-bold text-gray-700">Initial KYC Status</label>
@@ -1522,7 +1538,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
 
                 <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 mt-2 pt-3 border-t border-gray-100">
                   <button type="button" onClick={() => setIsCreatingUser(false)} className="w-full sm:w-auto bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-4 py-2.5 rounded-lg text-xs transition text-center">Dismiss</button>
-                  <button type="submit" className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-2.5 rounded-lg font-bold text-xs transition shadow-xs text-center">Save Seeds & Broadcast</button>
+                  <button type="submit" className="w-full sm:w-auto bg-rose-500 hover:bg-rose-600 text-white px-5 py-2.5 rounded-lg font-bold text-xs transition shadow-xs text-center">Save Seeds & Broadcast</button>
                 </div>
               </form>
             </div>
@@ -1689,11 +1705,11 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                           <span className="text-sm font-semibold text-[#111111]">${(u.totalInvestments || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
                         </td>
                         <td className="py-4.5 px-4 font-mono">
-                          <span className="text-sm font-extrabold text-emerald-500">${u.totalProfit.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                          <span className="text-sm font-extrabold text-rose-500">${u.totalProfit.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
                         </td>
                         <td className="py-4.5 px-4">
                           <span className={`inline-flex items-center gap-1 text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full ${
-                            u.kyc.status === 'Approved' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                            u.kyc.status === 'Approved' ? 'bg-rose-50 text-rose-600 border border-rose-100' :
                             u.kyc.status === 'Pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-gray-150 text-gray-500'
                           }`}>
                             {u.kyc.status}
@@ -1802,7 +1818,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                       </button>
                       <button
                         onClick={() => handleApproveKYC(email)}
-                        className="flex-1 sm:flex-none uppercase text-[10.5px] font-mono font-extrabold bg-[#3CB371] hover:bg-[#2E8B57] text-white py-2 px-3 rounded-lg transition flex items-center justify-center gap-1 shadow-sm shrink-0"
+                        className="flex-1 sm:flex-none uppercase text-[10.5px] font-mono font-extrabold bg-rose-500 hover:bg-rose-600 text-white py-2 px-3 rounded-lg transition flex items-center justify-center gap-1 shadow-sm shrink-0"
                       >
                         <CheckCircle size={13} /> Clear & Approve
                       </button>
@@ -1839,8 +1855,8 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                     <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[11px] mt-2">
                       <span className="text-gray-400">Transaction Reference:</span> <strong className="text-gray-700 font-mono text-xs">{tx.reference}</strong>
                       <span className="text-gray-400">Payment Channel:</span> <strong className="text-gray-700">{tx.methodOrPlan || 'Direct Cryptocurrency'}</strong>
-                      <span className="text-gray-400">Deposit Amount:</span> <strong className="text-emerald-600 font-bold font-mono">${tx.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</strong>
-                      <span className="text-gray-400">Recipient Target Address:</span> <span className="text-[#3CB371] font-semibold break-all leading-tight max-w-[170px] font-mono text-[10px]">{tx.destinationOrDetail}</span>
+                      <span className="text-gray-400">Deposit Amount:</span> <strong className="text-rose-600 font-bold font-mono">${tx.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</strong>
+                      <span className="text-gray-400">Recipient Target Address:</span> <span className="text-rose-500 font-semibold break-all leading-tight max-w-[170px] font-mono text-[10px]">{tx.destinationOrDetail}</span>
                       <span className="text-gray-400">Request Date:</span> <strong className="text-gray-405 font-mono">{tx.date}</strong>
                     </div>
                   </div>
@@ -1854,7 +1870,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                     </button>
                     <button
                       onClick={() => handleApproveDeposit(userEmail, tx.id, tx.amount)}
-                      className="flex-1 sm:flex-none uppercase text-[10.5px] font-mono font-extrabold bg-[#3CB371] hover:bg-[#2E8B57] text-white py-2.5 px-3.5 rounded-lg transition flex items-center justify-center gap-1 shadow-sm shrink-0 cursor-pointer"
+                      className="flex-1 sm:flex-none uppercase text-[10.5px] font-mono font-extrabold bg-rose-500 hover:bg-rose-600 text-white py-2.5 px-3.5 rounded-lg transition flex items-center justify-center gap-1 shadow-sm shrink-0 cursor-pointer"
                     >
                       <CheckCircle size={13} /> Approve Credit
                     </button>
@@ -1903,7 +1919,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                       </button>
                       <button
                         onClick={() => handleApproveWithdrawal(userEmail, tx.id, tx.amount)}
-                        className="bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold py-1.5 px-3.5 rounded-lg cursor-pointer text-[10.5px] uppercase flex items-center justify-center gap-1 shadow-xs"
+                        className="bg-rose-500 hover:bg-rose-600 text-white font-extrabold py-1.5 px-3.5 rounded-lg cursor-pointer text-[10.5px] uppercase flex items-center justify-center gap-1 shadow-xs"
                       >
                         <CheckCircle size={13} /> Settle Payout
                       </button>
@@ -1984,9 +2000,9 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
             {plans.map(p => {
               const parsedYield = parseFloat(p.yield) || 0.0;
               let tierLabel = "Steady Yield";
-              let tierBg = "bg-emerald-50 text-emerald-700 border-emerald-100";
-              let focusColor = "border-l-emerald-500";
-              let bulletIcon = <ShieldCheck className="text-emerald-500 w-3.5 h-3.5 shrink-0" />;
+              let tierBg = "bg-rose-50 text-rose-700 border-rose-100";
+              let focusColor = "border-l-rose-500";
+              let bulletIcon = <ShieldCheck className="text-rose-500 w-3.5 h-3.5 shrink-0" />;
 
               if (parsedYield >= 3.5) {
                 tierLabel = "Sovereign Elite";
@@ -2157,7 +2173,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                       title="Toggle Operational Visibility Status"
                     >
                       {g.enabled ? (
-                        <span className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full border border-emerald-100 font-bold text-[9.5px]">Active</span>
+                        <span className="bg-rose-50 text-rose-600 px-2 py-0.5 rounded-full border border-rose-100 font-bold text-[9.5px]">Active</span>
                       ) : (
                         <span className="bg-rose-50 text-rose-500 px-2 py-0.5 rounded-full border border-rose-100 font-bold text-[9.5px]">Disabled</span>
                       )}
@@ -2294,7 +2310,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
                     </div>
                     <strong className="text-black text-xs block mt-1 leading-snug">{log.subject}</strong>
                     <p className="text-gray-400 mt-1 text-[10px] lowercase leading-normal select-all bg-gray-50/50 p-2 rounded-md border border-gray-50">{log.snippet}</p>
-                    <span className="font-bold text-emerald-500 mt-1 font-mono text-[9px] uppercase tracking-wider flex items-center gap-0.5">
+                    <span className="font-bold text-rose-500 mt-1 font-mono text-[9px] uppercase tracking-wider flex items-center gap-0.5">
                       <CheckCircle2 size={10} /> Dispatched IPN Delivery Approved
                     </span>
                   </div>
@@ -2322,7 +2338,7 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
               <div key={log.id} className="flex gap-2 items-start py-1 px-2 border-b border-stone-850 hover:bg-stone-800 rounded">
                 <span className="text-stone-500 text-[10px] font-bold tracking-tight select-none mt-0.5">[{log.date}]</span>
                 <span className={`text-[10px] font-extrabold uppercase shrink-0 px-1 py-0.2 rounded mt-0.5 select-none ${
-                  log.priority === 'success' ? 'bg-emerald-500/10 text-emerald-400' :
+                  log.priority === 'success' ? 'bg-rose-500/10 text-rose-400' :
                   log.priority === 'warn' ? 'bg-rose-500/10 text-rose-400' : 'bg-blue-500/10 text-blue-400'
                 }`}>
                   {log.priority}
@@ -2334,28 +2350,12 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
         </div>
       )}
 
-        </div> {/* closes Right Tab Content Column */}
+        </div> {/* tab content card */}
 
-      </div> {/* closes Main Structural Grid split */}
+        </main>
+      </div> {/* sidebar + main row */}
 
-      {/* Elegant minimalist bottom footer */}
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-2 pt-5 border-t border-gray-150/40 text-[10.5px] font-mono text-gray-400 select-none">
-        <span className="text-center sm:text-left leading-relaxed">
-          SECURE OPERATOR ACCESS LEVEL: <strong className="text-gray-600 uppercase font-bold">SYSTEM ADMINISTRATOR</strong>
-          {(() => {
-            const adminUser = getAdminCredentials()?.username;
-            return adminUser ? ` (${adminUser})` : '';
-          })()}
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="bg-black hover:bg-neutral-800 text-white font-bold text-xs py-2.5 px-5 rounded-xl transition-all duration-150 cursor-pointer select-none shadow-xs flex items-center gap-1.5 font-sans"
-        >
-          <ArrowRight size={13} className="rotate-180" />
-          <span>Exit Administrative Console</span>
-        </button>
-      {/* Custom Confirmation Modal System */}
+      {/* Confirmation modal */}
       {confirmModal.isOpen && (
         <div className="fixed inset-0 z-55 flex items-center justify-center p-4 bg-stone-950/70 backdrop-blur-[2px] select-none animate-[fadeIn_0.15s_ease-out]">
           <div className="absolute inset-0" onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}></div>
@@ -2392,7 +2392,6 @@ export default function AdminPanel({ currentUser, onUpdateCurrentUser, triggerTo
         </div>
       )}
 
-      </div>
     </div>
   );
 }

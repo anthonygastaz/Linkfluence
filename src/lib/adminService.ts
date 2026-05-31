@@ -27,10 +27,12 @@ export function clearAdminCredentials(): void {
   sessionStorage.removeItem('linkfluence_admin_authenticated');
 }
 
-export async function verifyAdminLogin(username: string, password: string): Promise<boolean> {
+export async function verifyAdminLogin(
+  username: string,
+  password: string
+): Promise<{ ok: boolean; error?: string }> {
   if (!isSupabaseConfigured()) {
-    console.error('Admin login requires Supabase configuration.');
-    return false;
+    return { ok: false, error: 'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.' };
   }
 
   const { data, error } = await supabase.rpc('verify_admin', {
@@ -40,10 +42,14 @@ export async function verifyAdminLogin(username: string, password: string): Prom
 
   if (error) {
     console.error('Admin verification failed:', error);
-    return false;
+    return { ok: false, error: error.message };
   }
 
-  return data === true;
+  if (data !== true) {
+    return { ok: false, error: 'Invalid username or password.' };
+  }
+
+  return { ok: true };
 }
 
 export async function adminListProfiles(creds: AdminCredentials): Promise<any[]> {

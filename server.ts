@@ -2,8 +2,6 @@ import 'dotenv/config';
 import express from "express";
 import path from "path";
 import { createKycSignedUrl } from "./lib/kycSignedUrlHandler";
-import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
 import { createServer as createViteServer } from "vite";
 
 const app = express();
@@ -20,15 +18,7 @@ app.post("/api/admin/kyc-signed-url", async (req, res) => {
 async function setupVite() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      configFile: false,
-      root: process.cwd(),
-      appType: "spa",
-      plugins: [react(), tailwindcss()],
-      resolve: {
-        alias: {
-          "@": process.cwd(),
-        },
-      },
+      configFile: path.join(process.cwd(), "vite.config.mjs"),
       server: {
         middlewareMode: true,
         hmr: process.env.DISABLE_HMR !== "true",
