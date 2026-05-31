@@ -1,15 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { ArrowRight, HelpCircle, Check, Play, Sparkles, BookOpen, Clock, Activity, Menu, X, User, CheckCircle2, XCircle } from 'lucide-react';
 import LogoIcon from './components/LogoIcon';
 import DashboardMockup, { HeroDashboardScrollPanel } from './components/DashboardMockup';
 import Modal from './components/Modal';
 import OnboardingStepForm from './components/OnboardingStepForm';
 import MarketplaceSandbox from './components/MarketplaceSandbox';
-import AuthModal from './components/AuthModal';
-import UserDashboard from './components/UserDashboard';
-import AdminPanel from './components/AdminPanel';
 import { isSupabaseConfigured } from './lib/supabaseClient';
 import { supabaseService } from './lib/supabaseService';
+
+const AuthModal = lazy(() => import('./components/AuthModal'));
+const UserDashboard = lazy(() => import('./components/UserDashboard'));
+const AdminPanel = lazy(() => import('./components/AdminPanel'));
+
+function PanelLoader({ label = 'Loading…' }: { label?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[40vh] gap-3">
+      <LogoIcon className="text-[#3CB371] animate-pulse" size="36" />
+      <p className="text-sm text-gray-500 font-medium">{label}</p>
+    </div>
+  );
+}
 
 // Hero Brands list
 const HERO_BRANDS = [
@@ -329,14 +339,16 @@ export default function App() {
     return (
       <div id="linkfluence-app-root" className="flex flex-col bg-[#FAFAF7] relative min-h-screen">
         <div className="flex-1 w-full max-w-[90rem] mx-auto p-4 sm:p-6 md:p-8">
-          <AdminPanel
-            currentUser={currentUser}
-            onUpdateCurrentUser={(updated) => {
-              setCurrentUser(updated);
-            }}
-            triggerToast={triggerToast}
-            onClose={handleCloseAdmin}
-          />
+          <Suspense fallback={<PanelLoader label="Loading admin panel…" />}>
+            <AdminPanel
+              currentUser={currentUser}
+              onUpdateCurrentUser={(updated) => {
+                setCurrentUser(updated);
+              }}
+              triggerToast={triggerToast}
+              onClose={handleCloseAdmin}
+            />
+          </Suspense>
         </div>
 
         {/* Dynamic Activity Toast notifications */}
@@ -400,15 +412,17 @@ export default function App() {
           </div>
         </nav>
 
-        <UserDashboard
-          user={currentUser}
-          onUpdateUser={(updated) => {
-            setCurrentUser(updated);
-          }}
-          onLogout={handleUserLogout}
-          triggerToast={triggerToast}
-          onOpenAdmin={handleOpenAdmin}
-        />
+        <Suspense fallback={<PanelLoader label="Loading dashboard…" />}>
+          <UserDashboard
+            user={currentUser}
+            onUpdateUser={(updated) => {
+              setCurrentUser(updated);
+            }}
+            onLogout={handleUserLogout}
+            triggerToast={triggerToast}
+            onOpenAdmin={handleOpenAdmin}
+          />
+        </Suspense>
 
         {/* Dynamic Activity Toast notifications */}
         {showToast && (
@@ -1604,11 +1618,15 @@ export default function App() {
         title="Create your account"
         variant="auth"
       >
-        <AuthModal
-          initialTab="signup"
-          onSuccess={handleAuthSuccess}
-          onClose={() => setActiveModal('none')}
-        />
+        {activeModal === 'signup' && (
+          <Suspense fallback={<PanelLoader label="Loading sign up…" />}>
+            <AuthModal
+              initialTab="signup"
+              onSuccess={handleAuthSuccess}
+              onClose={() => setActiveModal('none')}
+            />
+          </Suspense>
+        )}
       </Modal>
 
       {/* Sign In Portal */}
@@ -1618,11 +1636,15 @@ export default function App() {
         title="Welcome back"
         variant="auth"
       >
-        <AuthModal
-          initialTab="signin"
-          onSuccess={handleAuthSuccess}
-          onClose={() => setActiveModal('none')}
-        />
+        {activeModal === 'signin' && (
+          <Suspense fallback={<PanelLoader label="Loading sign in…" />}>
+            <AuthModal
+              initialTab="signin"
+              onSuccess={handleAuthSuccess}
+              onClose={() => setActiveModal('none')}
+            />
+          </Suspense>
+        )}
       </Modal>
 
       {/* 1. Onboarding Stepper Modal */}
